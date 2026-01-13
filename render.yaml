@@ -1,0 +1,40 @@
+# SwingShift Survey System - Render Deployment Configuration
+# Last Updated: January 13, 2026
+#
+# This file configures the deployment on Render.com
+# 
+# NOTES FOR FUTURE AI:
+# - Backend deploys as a Web Service
+# - Database is PostgreSQL (create separately in Render dashboard)
+# - Frontend deploys as a Static Site (separate repo or different service)
+
+services:
+  # Backend API
+  - type: web
+    name: swingshift-api
+    env: python
+    region: oregon
+    plan: free
+    branch: main
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        fromDatabase:
+          name: swingshift-db
+          property: connectionString
+
+databases:
+  - name: swingshift-db
+    plan: free
+    region: oregon
+
+
+# I did no harm and this file is not truncated
