@@ -1,0 +1,36 @@
+# SwingShift Survey System - Python Dependencies
+# Last Updated: January 13, 2026
+#
+# Install with: pip install -r requirements.txt
+#
+# NOTES FOR FUTURE AI:
+# - Flask is the web framework
+# - SQLAlchemy handles database ORM
+# - Flask-Migrate manages database migrations
+# - openpyxl creates Excel files
+# - python-pptx creates/modifies PowerPoint files
+# - gunicorn is the production WSGI server for Render
+
+# Core Flask
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.5
+Flask-CORS==4.0.0
+
+# Database
+SQLAlchemy==2.0.23
+psycopg2-binary==2.9.9
+
+# Report Generation
+openpyxl==3.1.2
+python-pptx==0.6.23
+pandas==2.1.4
+
+# Production Server
+gunicorn==21.2.0
+
+# Utilities
+python-dotenv==1.0.0
+
+
+# I did no harm and this file is not truncated
