@@ -23,7 +23,7 @@ NOTES FOR FUTURE AI:
 """
 
 import os
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, render_template
 from flask_cors import CORS
 from flask_migrate import Migrate
 from datetime import datetime
@@ -89,6 +89,17 @@ def health_check():
 
 
 # ============================================================================
+# ADMIN PANEL (Web UI)
+# ============================================================================
+
+@app.route('/admin')
+@app.route('/admin/')
+def admin_panel():
+    """Serve the admin panel web interface"""
+    return render_template('admin.html')
+
+
+# ============================================================================
 # QUESTION BANK ENDPOINTS
 # ============================================================================
 
@@ -103,10 +114,15 @@ def get_questions():
     
     questions = query.order_by(MasterQuestion.question_number).all()
     
-    return jsonify({
-        'questions': [q.to_dict() for q in questions],
-        'total': len(questions)
-    })
+    result = []
+    for q in questions:
+        q_dict = q.to_dict()
+        # Include options for each question
+        options = ResponseOption.query.filter_by(question_id=q.id).order_by(ResponseOption.display_order).all()
+        q_dict['options'] = [{'option_text': o.option_text, 'option_code': o.option_code} for o in options]
+        result.append(q_dict)
+    
+    return jsonify(result)
 
 
 @app.route('/api/questions/categories', methods=['GET'])
@@ -204,10 +220,15 @@ def get_projects():
         return auth_error
     
     projects = Project.query.order_by(Project.created_at.desc()).all()
-    return jsonify({
-        'projects': [p.to_dict() for p in projects],
-        'total': len(projects)
-    })
+    result = []
+    for p in projects:
+        p_dict = p.to_dict()
+        # Add question count
+        p_dict['question_count'] = ProjectQuestion.query.filter_by(project_id=p.id).count()
+        # Add response count
+        p_dict['response_count'] = SurveyResponse.query.filter_by(project_id=p.id).count()
+        result.append(p_dict)
+    return jsonify(result)
 
 
 @app.route('/api/projects/<int:project_id>', methods=['GET'])
@@ -283,18 +304,18 @@ def get_project_questions(project_id):
     
     project = Project.query.get_or_404(project_id)
     
-    # Get both master questions and custom questions
-    project_questions = [pq.to_dict() for pq in project.questions]
-    custom_questions = [cq.to_dict() for cq in project.custom_questions]
+    # Get project questions with question_id for the admin panel
+    project_questions = ProjectQuestion.query.filter_by(project_id=project_id).order_by(ProjectQuestion.question_order).all()
     
-    # Combine and sort by question_order
-    all_questions = project_questions + custom_questions
-    all_questions.sort(key=lambda x: x['question_order'])
+    result = []
+    for pq in project_questions:
+        result.append({
+            'id': pq.id,
+            'question_id': pq.master_question_id,
+            'question_order': pq.question_order
+        })
     
-    return jsonify({
-        'questions': all_questions,
-        'total': len(all_questions)
-    })
+    return jsonify(result)
 
 
 @app.route('/api/projects/<int:project_id>/questions', methods=['POST'])
@@ -362,7 +383,9 @@ def add_project_question(project_id):
 
 @app.route('/api/projects/<int:project_id>/questions/bulk', methods=['POST'])
 def add_bulk_questions(project_id):
-    """Add multiple questions from master bank to a project (admin only)"""
+    """Add multiple questions from master bank to a project (admin only)
+    This replaces all existing questions with the new selection.
+    """
     auth_error = require_admin()
     if auth_error:
         return auth_error
@@ -370,30 +393,23 @@ def add_bulk_questions(project_id):
     project = Project.query.get_or_404(project_id)
     data = request.get_json()
     
-    # Get the next question order
-    max_order = db.session.query(
-        db.func.max(ProjectQuestion.question_order)
-    ).filter_by(project_id=project_id).scalar() or 0
+    # Accept either 'question_ids' or 'master_question_ids'
+    question_ids = data.get('question_ids', data.get('master_question_ids', []))
     
-    question_ids = data.get('master_question_ids', [])
+    # Clear existing project questions
+    ProjectQuestion.query.filter_by(project_id=project_id).delete()
+    
+    # Add new questions
     added = []
-    
     for i, mq_id in enumerate(question_ids):
-        # Check if already added
-        exists = ProjectQuestion.query.filter_by(
+        pq = ProjectQuestion(
             project_id=project_id,
-            master_question_id=mq_id
-        ).first()
-        
-        if not exists:
-            pq = ProjectQuestion(
-                project_id=project_id,
-                master_question_id=mq_id,
-                question_order=max_order + i + 1,
-                is_breakout=False
-            )
-            db.session.add(pq)
-            added.append(mq_id)
+            master_question_id=mq_id,
+            question_order=i + 1,
+            is_breakout=False
+        )
+        db.session.add(pq)
+        added.append(mq_id)
     
     db.session.commit()
     
