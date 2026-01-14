@@ -488,7 +488,7 @@ def create_custom_question(project_id):
     options = data.get('options', [])
     for i, opt in enumerate(options):
         ro = CustomResponseOption(
-            question_id=cq.id,
+            custom_question_id=cq.id,
             option_text=opt['text'],
             option_code=opt['code'],
             numeric_value=i + 1,
@@ -511,7 +511,7 @@ def delete_custom_question(project_id, question_id):
     cq = CustomQuestion.query.filter_by(id=question_id, project_id=project_id).first_or_404()
     
     # Delete associated response options
-    CustomResponseOption.query.filter_by(question_id=cq.id).delete()
+    CustomResponseOption.query.filter_by(custom_question_id=cq.id).delete()
     
     db.session.delete(cq)
     db.session.commit()
