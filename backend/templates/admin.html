@@ -1,1223 +1,266 @@
 <!DOCTYPE html>
 <!--
-SwingShift Survey System - Admin Panel v2
-=========================================
+SwingShift Survey System - Admin Panel v3
 Last Updated: January 14, 2026
-
-Enhanced admin interface with:
-- Question customization (required for Dept, Job Title, Crew)
-- Custom question creation (all types including open-ended)
-- Full survey builder workflow
-
-NOTES FOR FUTURE AI:
-- Questions 1, 2, 3 REQUIRE customization (department, job title, crew)
-- Custom questions support: multiple_choice, likert_5, yes_no, multi_select, open_text
-- Per-project option overrides stored via API
+Workflow: Select questions -> Add custom -> Save -> Customize required at save time
 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SwingShift Admin - Survey Management</title>
+    <title>SwingShift Admin</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>
-        .fade-in { animation: fadeIn 0.3s ease-in; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .slide-in { animation: slideIn 0.3s ease-out; }
-        @keyframes slideIn { from { transform: translateY(-10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-    </style>
+    <style>.fade-in{animation:fadeIn .3s}@keyframes fadeIn{from{opacity:0}to{opacity:1}}</style>
 </head>
 <body class="bg-gray-100 min-h-screen">
-    <div id="root"></div>
-
-    <script type="text/babel">
-        const { useState, useEffect, useCallback } = React;
-
-        // Questions that REQUIRE customization (site-specific)
-        const REQUIRED_CUSTOM_QUESTIONS = [1, 2, 3]; // Department, Job Title, Crew
-
-        // API Configuration
-        const API_BASE = '/api';
-        
-        // API Helper
-        const api = {
-            getKey: () => localStorage.getItem('swingshift_api_key') || '',
-            setKey: (key) => localStorage.setItem('swingshift_api_key', key),
-            
-            async request(endpoint, options = {}) {
-                const headers = {
-                    'Content-Type': 'application/json',
-                    'X-API-Key': this.getKey(),
-                    ...options.headers
-                };
-                
-                const response = await fetch(`${API_BASE}${endpoint}`, {
-                    ...options,
-                    headers
-                });
-                
-                if (!response.ok) {
-                    const error = await response.json().catch(() => ({ error: 'Request failed' }));
-                    throw new Error(error.error || 'Request failed');
-                }
-                
-                return response.json();
-            },
-            
-            get: (endpoint) => api.request(endpoint),
-            post: (endpoint, data) => api.request(endpoint, { method: 'POST', body: JSON.stringify(data) }),
-            put: (endpoint, data) => api.request(endpoint, { method: 'PUT', body: JSON.stringify(data) }),
-            delete: (endpoint) => api.request(endpoint, { method: 'DELETE' })
-        };
-
-        // ============================================================================
-        // LOGIN SCREEN
-        // ============================================================================
-        function LoginScreen({ onLogin }) {
-            const [apiKey, setApiKey] = useState('');
-            const [error, setError] = useState('');
-            const [loading, setLoading] = useState(false);
-
-            const handleSubmit = async (e) => {
-                e.preventDefault();
-                setLoading(true);
-                setError('');
-                api.setKey(apiKey);
-                try {
-                    await api.get('/setup/status');
-                    onLogin();
-                } catch (err) {
-                    setError('Invalid API key. Please check and try again.');
-                    api.setKey('');
-                }
-                setLoading(false);
-            };
-
-            return (
-                <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 to-indigo-900">
-                    <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md fade-in">
-                        <div className="text-center mb-8">
-                            <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-full mb-4">
-                                <i className="fas fa-clock text-white text-2xl"></i>
-                            </div>
-                            <h1 className="text-2xl font-bold text-gray-800">SwingShift Admin</h1>
-                            <p className="text-gray-500 mt-2">Survey Management System</p>
-                        </div>
-                        <form onSubmit={handleSubmit}>
-                            <div className="mb-6">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">Admin API Key</label>
-                                <input
-                                    type="password"
-                                    value={apiKey}
-                                    onChange={(e) => setApiKey(e.target.value)}
-                                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                    placeholder="Enter your API key"
-                                    required
-                                />
-                            </div>
-                            {error && (
-                                <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
-                                    <i className="fas fa-exclamation-circle mr-2"></i>{error}
-                                </div>
-                            )}
-                            <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50">
-                                {loading ? <><i className="fas fa-spinner fa-spin mr-2"></i>Verifying...</> : <><i className="fas fa-sign-in-alt mr-2"></i>Sign In</>}
-                            </button>
-                        </form>
-                        <p className="text-center text-gray-400 text-sm mt-6">Powered by Shiftwork Solutions LLC</p>
-                    </div>
-                </div>
-            );
-        }
-
-        // ============================================================================
-        // SIDEBAR
-        // ============================================================================
-        function Sidebar({ currentView, setCurrentView, onLogout }) {
-            const navItems = [
-                { id: 'dashboard', icon: 'fas fa-home', label: 'Dashboard' },
-                { id: 'projects', icon: 'fas fa-folder', label: 'Projects' },
-                { id: 'questions', icon: 'fas fa-list-check', label: 'Question Bank' },
-                { id: 'results', icon: 'fas fa-chart-bar', label: 'Results' },
-            ];
-
-            return (
-                <div className="w-64 bg-gray-900 min-h-screen fixed left-0 top-0">
-                    <div className="p-6 border-b border-gray-800">
-                        <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                                <i className="fas fa-clock text-white"></i>
-                            </div>
-                            <div>
-                                <h1 className="text-white font-bold">SwingShift</h1>
-                                <p className="text-gray-400 text-xs">Admin Panel</p>
-                            </div>
-                        </div>
-                    </div>
-                    <nav className="p-4">
-                        {navItems.map(item => (
-                            <button
-                                key={item.id}
-                                onClick={() => setCurrentView(item.id)}
-                                className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg mb-2 transition ${
-                                    currentView === item.id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-                                }`}
-                            >
-                                <i className={item.icon}></i>
-                                <span>{item.label}</span>
-                            </button>
-                        ))}
-                    </nav>
-                    <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
-                        <button onClick={onLogout} className="w-full flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition">
-                            <i className="fas fa-sign-out-alt"></i>
-                            <span>Logout</span>
-                        </button>
-                    </div>
-                </div>
-            );
-        }
-
-        // ============================================================================
-        // DASHBOARD
-        // ============================================================================
-        function Dashboard({ setCurrentView }) {
-            const [stats, setStats] = useState(null);
-            const [loading, setLoading] = useState(true);
-
-            useEffect(() => { loadStats(); }, []);
-
-            const loadStats = async () => {
-                try {
-                    const status = await api.get('/setup/status');
-                    const projects = await api.get('/projects');
-                    setStats({
-                        questions: status.questions_loaded || 0,
-                        projects: projects.length || 0,
-                        activeProjects: projects.filter(p => p.status === 'active').length || 0,
-                        totalResponses: status.total_responses || 0
-                    });
-                } catch (err) { console.error('Failed to load stats:', err); }
-                setLoading(false);
-            };
-
-            if (loading) return <div className="flex items-center justify-center h-64"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
-
-            const statCards = [
-                { label: 'Master Questions', value: stats?.questions || 0, icon: 'fas fa-list-check', color: 'bg-blue-500' },
-                { label: 'Total Projects', value: stats?.projects || 0, icon: 'fas fa-folder', color: 'bg-green-500' },
-                { label: 'Active Surveys', value: stats?.activeProjects || 0, icon: 'fas fa-play-circle', color: 'bg-yellow-500' },
-                { label: 'Total Responses', value: stats?.totalResponses || 0, icon: 'fas fa-users', color: 'bg-purple-500' },
-            ];
-
-            return (
-                <div className="fade-in">
-                    <div className="mb-8">
-                        <h1 className="text-3xl font-bold text-gray-800">Dashboard</h1>
-                        <p className="text-gray-500 mt-1">Welcome to SwingShift Survey Management</p>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                        {statCards.map((card, idx) => (
-                            <div key={idx} className="bg-white rounded-xl shadow-sm p-6 slide-in">
-                                <div className="flex items-center justify-between">
-                                    <div>
-                                        <p className="text-gray-500 text-sm">{card.label}</p>
-                                        <p className="text-3xl font-bold text-gray-800 mt-1">{card.value}</p>
-                                    </div>
-                                    <div className={`w-12 h-12 ${card.color} rounded-lg flex items-center justify-center`}>
-                                        <i className={`${card.icon} text-white text-xl`}></i>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        <div className="bg-white rounded-xl shadow-sm p-6">
-                            <h2 className="text-xl font-bold text-gray-800 mb-4">Quick Actions</h2>
-                            <div className="space-y-3">
-                                <button onClick={() => setCurrentView('projects')} className="w-full flex items-center justify-between p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition">
-                                    <span className="flex items-center"><i className="fas fa-plus-circle text-blue-600 mr-3"></i><span className="font-medium text-gray-700">Create New Project</span></span>
-                                    <i className="fas fa-chevron-right text-gray-400"></i>
-                                </button>
-                                <button onClick={() => setCurrentView('questions')} className="w-full flex items-center justify-between p-4 bg-green-50 hover:bg-green-100 rounded-lg transition">
-                                    <span className="flex items-center"><i className="fas fa-list text-green-600 mr-3"></i><span className="font-medium text-gray-700">View Question Bank</span></span>
-                                    <i className="fas fa-chevron-right text-gray-400"></i>
-                                </button>
-                                <button onClick={() => setCurrentView('results')} className="w-full flex items-center justify-between p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition">
-                                    <span className="flex items-center"><i className="fas fa-chart-pie text-purple-600 mr-3"></i><span className="font-medium text-gray-700">View Survey Results</span></span>
-                                    <i className="fas fa-chevron-right text-gray-400"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div className="bg-white rounded-xl shadow-sm p-6">
-                            <h2 className="text-xl font-bold text-gray-800 mb-4">System Status</h2>
-                            <div className="space-y-4">
-                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                    <span className="text-gray-600">Database</span>
-                                    <span className="flex items-center text-green-600"><i className="fas fa-check-circle mr-2"></i>Connected</span>
-                                </div>
-                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                    <span className="text-gray-600">Question Bank</span>
-                                    <span className="flex items-center text-green-600"><i className="fas fa-check-circle mr-2"></i>{stats?.questions} Questions</span>
-                                </div>
-                                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                    <span className="text-gray-600">API Status</span>
-                                    <span className="flex items-center text-green-600"><i className="fas fa-check-circle mr-2"></i>Operational</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        // ============================================================================
-        // PROJECTS VIEW
-        // ============================================================================
-        function Projects() {
-            const [projects, setProjects] = useState([]);
-            const [loading, setLoading] = useState(true);
-            const [showCreateModal, setShowCreateModal] = useState(false);
-            const [selectedProject, setSelectedProject] = useState(null);
-            const [showBuilderModal, setShowBuilderModal] = useState(false);
-
-            useEffect(() => { loadProjects(); }, []);
-
-            const loadProjects = async () => {
-                setLoading(true);
-                try {
-                    const data = await api.get('/projects');
-                    setProjects(data);
-                } catch (err) { console.error('Failed to load projects:', err); }
-                setLoading(false);
-            };
-
-            const handleCreateProject = async (projectData) => {
-                try {
-                    await api.post('/projects', projectData);
-                    setShowCreateModal(false);
-                    loadProjects();
-                } catch (err) { alert('Failed to create project: ' + err.message); }
-            };
-
-            const handleStatusChange = async (project, newStatus) => {
-                try {
-                    await api.put(`/projects/${project.id}`, { status: newStatus });
-                    loadProjects();
-                } catch (err) { alert('Failed to update status: ' + err.message); }
-            };
-
-            const openSurveyBuilder = (project) => {
-                setSelectedProject(project);
-                setShowBuilderModal(true);
-            };
-
-            const getStatusBadge = (status) => {
-                const styles = { draft: 'bg-gray-100 text-gray-600', active: 'bg-green-100 text-green-600', closed: 'bg-red-100 text-red-600' };
-                return <span className={`px-3 py-1 rounded-full text-sm font-medium ${styles[status] || styles.draft}`}>{status.charAt(0).toUpperCase() + status.slice(1)}</span>;
-            };
-
-            if (loading) return <div className="flex items-center justify-center h-64"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
-
-            return (
-                <div className="fade-in">
-                    <div className="flex justify-between items-center mb-8">
-                        <div>
-                            <h1 className="text-3xl font-bold text-gray-800">Projects</h1>
-                            <p className="text-gray-500 mt-1">Manage your survey projects</p>
-                        </div>
-                        <button onClick={() => setShowCreateModal(true)} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition flex items-center">
-                            <i className="fas fa-plus mr-2"></i>New Project
-                        </button>
-                    </div>
-
-                    {projects.length === 0 ? (
-                        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
-                            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i className="fas fa-folder-open text-gray-400 text-2xl"></i>
-                            </div>
-                            <h3 className="text-xl font-medium text-gray-800 mb-2">No projects yet</h3>
-                            <p className="text-gray-500 mb-6">Create your first survey project to get started</p>
-                            <button onClick={() => setShowCreateModal(true)} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition">
-                                <i className="fas fa-plus mr-2"></i>Create Project
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-                            <table className="w-full">
-                                <thead className="bg-gray-50 border-b">
-                                    <tr>
-                                        <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Project</th>
-                                        <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Company</th>
-                                        <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Status</th>
-                                        <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Questions</th>
-                                        <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Responses</th>
-                                        <th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                    {projects.map(project => (
-                                        <tr key={project.id} className="hover:bg-gray-50">
-                                            <td className="px-6 py-4">
-                                                <div className="font-medium text-gray-800">{project.project_name}</div>
-                                                <div className="text-sm text-gray-500">Code: {project.access_code}</div>
-                                            </td>
-                                            <td className="px-6 py-4 text-gray-600">{project.company_name}</td>
-                                            <td className="px-6 py-4">{getStatusBadge(project.status)}</td>
-                                            <td className="px-6 py-4 text-gray-600">{project.question_count || 0}</td>
-                                            <td className="px-6 py-4 text-gray-600">{project.response_count || 0}</td>
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center space-x-2">
-                                                    <button onClick={() => openSurveyBuilder(project)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Survey Builder">
-                                                        <i className="fas fa-edit"></i>
-                                                    </button>
-                                                    {project.status === 'draft' && (
-                                                        <button onClick={() => handleStatusChange(project, 'active')} className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition" title="Activate Survey">
-                                                            <i className="fas fa-play"></i>
-                                                        </button>
-                                                    )}
-                                                    {project.status === 'active' && (
-                                                        <button onClick={() => handleStatusChange(project, 'closed')} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition" title="Close Survey">
-                                                            <i className="fas fa-stop"></i>
-                                                        </button>
-                                                    )}
-                                                    <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/survey/${project.access_code}`); alert('Survey link copied!'); }} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition" title="Copy Survey Link">
-                                                        <i className="fas fa-link"></i>
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-
-                    {showCreateModal && <CreateProjectModal onClose={() => setShowCreateModal(false)} onCreate={handleCreateProject} />}
-                    {showBuilderModal && selectedProject && <SurveyBuilderModal project={selectedProject} onClose={() => { setShowBuilderModal(false); setSelectedProject(null); loadProjects(); }} />}
-                </div>
-            );
-        }
-
-        // ============================================================================
-        // CREATE PROJECT MODAL
-        // ============================================================================
-        function CreateProjectModal({ onClose, onCreate }) {
-            const [formData, setFormData] = useState({ project_name: '', company_name: '', contact_email: '' });
-
-            const handleSubmit = (e) => { e.preventDefault(); onCreate(formData); };
-
-            return (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 fade-in">
-                        <div className="flex justify-between items-center mb-6">
-                            <h2 className="text-xl font-bold text-gray-800">Create New Project</h2>
-                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><i className="fas fa-times text-xl"></i></button>
-                        </div>
-                        <form onSubmit={handleSubmit}>
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Project Name *</label>
-                                    <input type="text" value={formData.project_name} onChange={(e) => setFormData({...formData, project_name: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="e.g., 2026 Schedule Survey" required />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Company Name *</label>
-                                    <input type="text" value={formData.company_name} onChange={(e) => setFormData({...formData, company_name: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="e.g., Acme Manufacturing" required />
-                                </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact Email</label>
-                                    <input type="email" value={formData.contact_email} onChange={(e) => setFormData({...formData, contact_email: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="e.g., hr@acme.com" />
-                                </div>
-                            </div>
-                            <div className="flex justify-end space-x-3 mt-6">
-                                <button type="button" onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">Cancel</button>
-                                <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Create Project</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            );
-        }
-
-        // ============================================================================
-        // CUSTOMIZE OPTIONS MODAL
-        // ============================================================================
-        function CustomizeOptionsModal({ question, currentOptions, onSave, onClose }) {
-            const [options, setOptions] = useState(currentOptions || []);
-            const [newOption, setNewOption] = useState('');
-
-            const addOption = () => {
-                if (newOption.trim()) {
-                    const code = String.fromCharCode(97 + options.length); // a, b, c, etc.
-                    setOptions([...options, { text: newOption.trim(), code: code }]);
-                    setNewOption('');
-                }
-            };
-
-            const removeOption = (index) => {
-                setOptions(options.filter((_, i) => i !== index));
-            };
-
-            const handleSave = () => {
-                if (options.length < 2) {
-                    alert('Please add at least 2 options');
-                    return;
-                }
-                onSave(options);
-            };
-
-            const isRequired = REQUIRED_CUSTOM_QUESTIONS.includes(question.question_number);
-
-            return (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 fade-in max-h-[80vh] flex flex-col">
-                        <div className="flex justify-between items-center mb-4">
-                            <div>
-                                <h2 className="text-xl font-bold text-gray-800">Customize Options</h2>
-                                {isRequired && <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded">Required for this question</span>}
-                            </div>
-                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><i className="fas fa-times text-xl"></i></button>
-                        </div>
-
-                        <div className="bg-blue-50 p-3 rounded-lg mb-4">
-                            <p className="text-sm text-gray-700"><strong>Q{question.question_number}:</strong> {question.question_text}</p>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-2">Response Options</label>
-                            {options.length === 0 ? (
-                                <p className="text-gray-400 text-sm italic mb-2">No options yet. Add options below.</p>
-                            ) : (
-                                <div className="space-y-2 mb-4">
-                                    {options.map((opt, idx) => (
-                                        <div key={idx} className="flex items-center bg-gray-50 p-2 rounded-lg">
-                                            <span className="w-8 h-8 bg-blue-100 text-blue-600 rounded flex items-center justify-center font-medium mr-3">{opt.code.toUpperCase()}</span>
-                                            <span className="flex-1 text-gray-700">{opt.text}</span>
-                                            <button onClick={() => removeOption(idx)} className="text-red-500 hover:text-red-700 p-1"><i className="fas fa-trash-alt"></i></button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-
-                            <div className="flex gap-2">
-                                <input
-                                    type="text"
-                                    value={newOption}
-                                    onChange={(e) => setNewOption(e.target.value)}
-                                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addOption())}
-                                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                    placeholder="Enter option text..."
-                                />
-                                <button onClick={addOption} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
-                                    <i className="fas fa-plus"></i>
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="flex justify-end space-x-3 border-t pt-4">
-                            <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">Cancel</button>
-                            <button onClick={handleSave} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
-                                <i className="fas fa-check mr-2"></i>Save Options
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        // ============================================================================
-        // ADD CUSTOM QUESTION MODAL
-        // ============================================================================
-        function AddCustomQuestionModal({ projectId, onSave, onClose }) {
-            const [questionText, setQuestionText] = useState('');
-            const [questionType, setQuestionType] = useState('multiple_choice');
-            const [options, setOptions] = useState([]);
-            const [newOption, setNewOption] = useState('');
-            const [saving, setSaving] = useState(false);
-
-            const questionTypes = [
-                { value: 'multiple_choice', label: 'Multiple Choice', needsOptions: true },
-                { value: 'likert_5', label: 'Likert Scale (1-5)', needsOptions: false },
-                { value: 'yes_no', label: 'Yes / No', needsOptions: false },
-                { value: 'multi_select', label: 'Multi-Select (check all that apply)', needsOptions: true },
-                { value: 'open_text', label: 'Open-Ended Text', needsOptions: false },
-            ];
-
-            const needsOptions = questionTypes.find(t => t.value === questionType)?.needsOptions;
-
-            const addOption = () => {
-                if (newOption.trim()) {
-                    const code = String.fromCharCode(97 + options.length);
-                    setOptions([...options, { text: newOption.trim(), code: code }]);
-                    setNewOption('');
-                }
-            };
-
-            const removeOption = (index) => {
-                setOptions(options.filter((_, i) => i !== index));
-            };
-
-            const handleSave = async () => {
-                if (!questionText.trim()) {
-                    alert('Please enter a question');
-                    return;
-                }
-                if (needsOptions && options.length < 2) {
-                    alert('Please add at least 2 options');
-                    return;
-                }
-
-                setSaving(true);
-                try {
-                    await api.post(`/projects/${projectId}/custom-questions`, {
-                        question_text: questionText,
-                        question_type: questionType,
-                        options: needsOptions ? options : []
-                    });
-                    onSave();
-                } catch (err) {
-                    alert('Failed to save question: ' + err.message);
-                }
-                setSaving(false);
-            };
-
-            return (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 fade-in max-h-[85vh] flex flex-col">
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold text-gray-800">Add Custom Question</h2>
-                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><i className="fas fa-times text-xl"></i></button>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Question Text *</label>
-                                <textarea
-                                    value={questionText}
-                                    onChange={(e) => setQuestionText(e.target.value)}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                    rows={3}
-                                    placeholder="Enter your question..."
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Question Type *</label>
-                                <select
-                                    value={questionType}
-                                    onChange={(e) => { setQuestionType(e.target.value); setOptions([]); }}
-                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                >
-                                    {questionTypes.map(t => (
-                                        <option key={t.value} value={t.value}>{t.label}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            {needsOptions && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Response Options *</label>
-                                    {options.length > 0 && (
-                                        <div className="space-y-2 mb-3">
-                                            {options.map((opt, idx) => (
-                                                <div key={idx} className="flex items-center bg-gray-50 p-2 rounded-lg">
-                                                    <span className="w-8 h-8 bg-blue-100 text-blue-600 rounded flex items-center justify-center font-medium mr-3">{opt.code.toUpperCase()}</span>
-                                                    <span className="flex-1 text-gray-700">{opt.text}</span>
-                                                    <button onClick={() => removeOption(idx)} className="text-red-500 hover:text-red-700 p-1"><i className="fas fa-trash-alt"></i></button>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                    <div className="flex gap-2">
-                                        <input
-                                            type="text"
-                                            value={newOption}
-                                            onChange={(e) => setNewOption(e.target.value)}
-                                            onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addOption())}
-                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                                            placeholder="Enter option text..."
-                                        />
-                                        <button onClick={addOption} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
-                                            <i className="fas fa-plus"></i>
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {questionType === 'likert_5' && (
-                                <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600">
-                                    <i className="fas fa-info-circle mr-2"></i>
-                                    Likert scale will show: 1 (Strongly Disagree) to 5 (Strongly Agree)
-                                </div>
-                            )}
-
-                            {questionType === 'yes_no' && (
-                                <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600">
-                                    <i className="fas fa-info-circle mr-2"></i>
-                                    Options will be: Yes / No
-                                </div>
-                            )}
-
-                            {questionType === 'open_text' && (
-                                <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600">
-                                    <i className="fas fa-info-circle mr-2"></i>
-                                    Employees will enter free-form text response
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="flex justify-end space-x-3 border-t pt-4 mt-4">
-                            <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">Cancel</button>
-                            <button onClick={handleSave} disabled={saving} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50">
-                                {saving ? <><i className="fas fa-spinner fa-spin mr-2"></i>Saving...</> : <><i className="fas fa-plus mr-2"></i>Add Question</>}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        // ============================================================================
-        // SURVEY BUILDER MODAL (Enhanced)
-        // ============================================================================
-        function SurveyBuilderModal({ project, onClose }) {
-            const [questions, setQuestions] = useState([]);
-            const [customQuestions, setCustomQuestions] = useState([]);
-            const [selectedQuestions, setSelectedQuestions] = useState({});  // {questionId: {selected: bool, customOptions: []}}
-            const [selectedCategory, setSelectedCategory] = useState('all');
-            const [loading, setLoading] = useState(true);
-            const [saving, setSaving] = useState(false);
-            const [customizeQuestion, setCustomizeQuestion] = useState(null);
-            const [showAddCustom, setShowAddCustom] = useState(false);
-
-            const categories = ['all', 'Demographics', 'Health and Alertness', 'Working Conditions', 'Shift Schedule Features', 'Overtime', 'Day Care/Elder Care', 'Custom'];
-
-            useEffect(() => { loadData(); }, []);
-
-            const loadData = async () => {
-                try {
-                    const [allQuestions, projQuestions, projCustomQuestions] = await Promise.all([
-                        api.get('/questions'),
-                        api.get(`/projects/${project.id}/questions`),
-                        api.get(`/projects/${project.id}/custom-questions`).catch(() => [])
-                    ]);
-                    setQuestions(allQuestions);
-                    setCustomQuestions(projCustomQuestions || []);
-
-                    // Build selected state from existing project questions
-                    const selected = {};
-                    projQuestions.forEach(pq => {
-                        selected[pq.question_id] = { selected: true, customOptions: pq.custom_options || [] };
-                    });
-                    setSelectedQuestions(selected);
-                } catch (err) { console.error('Failed to load questions:', err); }
-                setLoading(false);
-            };
-
-            const toggleQuestion = (question) => {
-                const qId = question.id;
-                const isCurrentlySelected = selectedQuestions[qId]?.selected;
-                
-                if (!isCurrentlySelected && REQUIRED_CUSTOM_QUESTIONS.includes(question.question_number)) {
-                    // Require customization for these questions
-                    setCustomizeQuestion(question);
-                    return;
-                }
-
-                setSelectedQuestions(prev => ({
-                    ...prev,
-                    [qId]: { ...prev[qId], selected: !isCurrentlySelected, customOptions: prev[qId]?.customOptions || [] }
-                }));
-            };
-
-            const handleCustomize = (question) => {
-                setCustomizeQuestion(question);
-            };
-
-            const handleSaveCustomOptions = (options) => {
-                const qId = customizeQuestion.id;
-                setSelectedQuestions(prev => ({
-                    ...prev,
-                    [qId]: { selected: true, customOptions: options }
-                }));
-                setCustomizeQuestion(null);
-            };
-
-            const saveQuestions = async () => {
-                // Check for required customizations
-                const selectedIds = Object.keys(selectedQuestions).filter(id => selectedQuestions[id]?.selected);
-                for (const qId of selectedIds) {
-                    const q = questions.find(q => q.id === parseInt(qId));
-                    if (q && REQUIRED_CUSTOM_QUESTIONS.includes(q.question_number)) {
-                        const customOpts = selectedQuestions[qId]?.customOptions || [];
-                        if (customOpts.length < 2) {
-                            alert(`Please customize the options for: "${q.question_text}"`);
-                            setCustomizeQuestion(q);
-                            return;
-                        }
-                    }
-                }
-
-                setSaving(true);
-                try {
-                    await api.post(`/projects/${project.id}/questions/bulk`, {
-                        question_ids: selectedIds.map(id => parseInt(id)),
-                        custom_options: selectedQuestions
-                    });
-                    onClose();
-                } catch (err) { alert('Failed to save: ' + err.message); }
-                setSaving(false);
-            };
-
-            const handleCustomQuestionAdded = () => {
-                setShowAddCustom(false);
-                loadData();
-            };
-
-            const deleteCustomQuestion = async (cqId) => {
-                if (!confirm('Delete this custom question?')) return;
-                try {
-                    await api.delete(`/projects/${project.id}/custom-questions/${cqId}`);
-                    loadData();
-                } catch (err) { alert('Failed to delete: ' + err.message); }
-            };
-
-            const selectedCount = Object.values(selectedQuestions).filter(q => q?.selected).length + customQuestions.length;
-
-            const filteredQuestions = selectedCategory === 'all'
-                ? questions
-                : selectedCategory === 'Custom'
-                ? []
-                : questions.filter(q => q.category === selectedCategory);
-
-            if (loading) return (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-xl p-8"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>
-                </div>
-            );
-
-            return (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col fade-in">
-                        <div className="p-6 border-b flex justify-between items-center">
-                            <div>
-                                <h2 className="text-xl font-bold text-gray-800">Survey Builder</h2>
-                                <p className="text-gray-500 text-sm">{project.project_name} - {project.company_name}</p>
-                            </div>
-                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><i className="fas fa-times text-xl"></i></button>
-                        </div>
-
-                        <div className="p-4 border-b bg-gray-50">
-                            <div className="flex flex-wrap gap-2 mb-3">
-                                {categories.map(cat => (
-                                    <button
-                                        key={cat}
-                                        onClick={() => setSelectedCategory(cat)}
-                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                                            selectedCategory === cat ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
-                                        }`}
-                                    >
-                                        {cat === 'all' ? 'All Categories' : cat}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="flex items-center justify-between">
-                                <span className="text-sm text-gray-500">{selectedCount} questions in survey</span>
-                                <button onClick={() => setShowAddCustom(true)} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
-                                    <i className="fas fa-plus mr-2"></i>Add Custom Question
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className="flex-1 overflow-y-auto p-4">
-                            {/* Custom Questions Section */}
-                            {(selectedCategory === 'all' || selectedCategory === 'Custom') && customQuestions.length > 0 && (
-                                <div className="mb-6">
-                                    <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
-                                        <i className="fas fa-star text-yellow-500 mr-2"></i>Custom Questions ({customQuestions.length})
-                                    </h3>
-                                    <div className="space-y-2">
-                                        {customQuestions.map(cq => (
-                                            <div key={`custom-${cq.id}`} className="p-4 rounded-lg border-2 border-green-500 bg-green-50">
-                                                <div className="flex items-start justify-between">
-                                                    <div className="flex-1">
-                                                        <div className="flex items-center">
-                                                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded mr-2">Custom</span>
-                                                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{cq.question_type}</span>
-                                                        </div>
-                                                        <p className="text-gray-800 mt-1">{cq.question_text}</p>
-                                                    </div>
-                                                    <button onClick={() => deleteCustomQuestion(cq.id)} className="text-red-500 hover:text-red-700 p-2">
-                                                        <i className="fas fa-trash-alt"></i>
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Master Questions */}
-                            {selectedCategory !== 'Custom' && (
-                                <div className="space-y-2">
-                                    {filteredQuestions.map(q => {
-                                        const isSelected = selectedQuestions[q.id]?.selected;
-                                        const hasCustomOptions = (selectedQuestions[q.id]?.customOptions || []).length > 0;
-                                        const requiresCustom = REQUIRED_CUSTOM_QUESTIONS.includes(q.question_number);
-
-                                        return (
-                                            <div
-                                                key={q.id}
-                                                className={`p-4 rounded-lg border-2 transition ${
-                                                    isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
-                                                }`}
-                                            >
-                                                <div className="flex items-start">
-                                                    <div
-                                                        onClick={() => toggleQuestion(q)}
-                                                        className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 mt-0.5 cursor-pointer ${
-                                                            isSelected ? 'border-blue-500 bg-blue-500' : 'border-gray-300'
-                                                        }`}
-                                                    >
-                                                        {isSelected && <i className="fas fa-check text-white text-xs"></i>}
-                                                    </div>
-                                                    <div className="flex-1" onClick={() => toggleQuestion(q)} style={{cursor: 'pointer'}}>
-                                                        <div className="flex items-center flex-wrap gap-1">
-                                                            <span className="text-sm font-medium text-gray-500 mr-2">Q{q.question_number}</span>
-                                                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{q.category}</span>
-                                                            {requiresCustom && <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded">Requires Customization</span>}
-                                                            {hasCustomOptions && <span className="text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded"><i className="fas fa-check mr-1"></i>Customized</span>}
-                                                        </div>
-                                                        <p className="text-gray-800 mt-1">{q.question_text}</p>
-                                                        <p className="text-xs text-gray-400 mt-1">{q.question_type}</p>
-                                                    </div>
-                                                    {isSelected && (
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); handleCustomize(q); }}
-                                                            className="ml-2 px-3 py-1 text-sm text-blue-600 hover:bg-blue-100 rounded transition"
-                                                        >
-                                                            <i className="fas fa-cog mr-1"></i>Customize
-                                                        </button>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
-                            <span className="text-sm text-gray-600">
-                                <i className="fas fa-check-circle text-green-500 mr-2"></i>
-                                {selectedCount} questions in survey
-                            </span>
-                            <div className="space-x-3">
-                                <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition">Cancel</button>
-                                <button onClick={saveQuestions} disabled={saving} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50">
-                                    {saving ? <><i className="fas fa-spinner fa-spin mr-2"></i>Saving...</> : <><i className="fas fa-save mr-2"></i>Save Survey</>}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    {customizeQuestion && (
-                        <CustomizeOptionsModal
-                            question={customizeQuestion}
-                            currentOptions={selectedQuestions[customizeQuestion.id]?.customOptions || []}
-                            onSave={handleSaveCustomOptions}
-                            onClose={() => setCustomizeQuestion(null)}
-                        />
-                    )}
-
-                    {showAddCustom && (
-                        <AddCustomQuestionModal
-                            projectId={project.id}
-                            onSave={handleCustomQuestionAdded}
-                            onClose={() => setShowAddCustom(false)}
-                        />
-                    )}
-                </div>
-            );
-        }
-
-        // ============================================================================
-        // QUESTIONS VIEW
-        // ============================================================================
-        function Questions() {
-            const [questions, setQuestions] = useState([]);
-            const [loading, setLoading] = useState(true);
-            const [selectedCategory, setSelectedCategory] = useState('all');
-            const [expandedQuestion, setExpandedQuestion] = useState(null);
-
-            const categories = ['all', 'Demographics', 'Health and Alertness', 'Working Conditions', 'Shift Schedule Features', 'Overtime', 'Day Care/Elder Care'];
-
-            useEffect(() => { loadQuestions(); }, []);
-
-            const loadQuestions = async () => {
-                try {
-                    const data = await api.get('/questions');
-                    setQuestions(data);
-                } catch (err) { console.error('Failed to load questions:', err); }
-                setLoading(false);
-            };
-
-            const filteredQuestions = selectedCategory === 'all' ? questions : questions.filter(q => q.category === selectedCategory);
-            const categoryCounts = categories.reduce((acc, cat) => {
-                acc[cat] = cat === 'all' ? questions.length : questions.filter(q => q.category === cat).length;
-                return acc;
-            }, {});
-
-            if (loading) return <div className="flex items-center justify-center h-64"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
-
-            return (
-                <div className="fade-in">
-                    <div className="mb-8">
-                        <h1 className="text-3xl font-bold text-gray-800">Question Bank</h1>
-                        <p className="text-gray-500 mt-1">97 master questions developed over 30+ years</p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 mb-6">
-                        {categories.map(cat => (
-                            <button
-                                key={cat}
-                                onClick={() => setSelectedCategory(cat)}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                                    selectedCategory === cat ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 shadow-sm'
-                                }`}
-                            >
-                                {cat === 'all' ? 'All' : cat} ({categoryCounts[cat]})
-                            </button>
-                        ))}
-                    </div>
-                    <div className="bg-white rounded-xl shadow-sm">
-                        <div className="divide-y">
-                            {filteredQuestions.map(q => (
-                                <div key={q.id} className="p-4 hover:bg-gray-50">
-                                    <div className="flex items-start cursor-pointer" onClick={() => setExpandedQuestion(expandedQuestion === q.id ? null : q.id)}>
-                                        <span className="w-10 h-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-bold mr-4">{q.question_number}</span>
-                                        <div className="flex-1">
-                                            <div className="flex items-center mb-1">
-                                                <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded mr-2">{q.category}</span>
-                                                <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded">{q.question_type}</span>
-                                                {REQUIRED_CUSTOM_QUESTIONS.includes(q.question_number) && (
-                                                    <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded ml-2">Site-Specific</span>
-                                                )}
-                                            </div>
-                                            <p className="text-gray-800">{q.question_text}</p>
-                                        </div>
-                                        <i className={`fas fa-chevron-${expandedQuestion === q.id ? 'up' : 'down'} text-gray-400 ml-4`}></i>
-                                    </div>
-                                    {expandedQuestion === q.id && q.options && (
-                                        <div className="mt-4 ml-14 p-4 bg-gray-50 rounded-lg">
-                                            <p className="text-sm font-medium text-gray-600 mb-2">Default Response Options:</p>
-                                            <div className="space-y-1">
-                                                {q.options.map((opt, idx) => (
-                                                    <div key={idx} className="flex items-center text-sm">
-                                                        <span className="w-6 h-6 bg-white border rounded flex items-center justify-center text-gray-500 mr-2">{opt.option_code}</span>
-                                                        <span className="text-gray-700">{opt.option_text}</span>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        // ============================================================================
-        // RESULTS VIEW
-        // ============================================================================
-        function Results() {
-            const [projects, setProjects] = useState([]);
-            const [selectedProject, setSelectedProject] = useState(null);
-            const [results, setResults] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [loadingResults, setLoadingResults] = useState(false);
-
-            useEffect(() => { loadProjects(); }, []);
-
-            const loadProjects = async () => {
-                try {
-                    const data = await api.get('/projects');
-                    setProjects(data);
-                    if (data.length > 0) {
-                        setSelectedProject(data[0]);
-                        loadResults(data[0].id);
-                    }
-                } catch (err) { console.error('Failed to load projects:', err); }
-                setLoading(false);
-            };
-
-            const loadResults = async (projectId) => {
-                setLoadingResults(true);
-                try {
-                    const data = await api.get(`/projects/${projectId}/results`);
-                    setResults(data);
-                } catch (err) { console.error('Failed to load results:', err); setResults(null); }
-                setLoadingResults(false);
-            };
-
-            const handleProjectChange = (project) => {
-                setSelectedProject(project);
-                loadResults(project.id);
-            };
-
-            if (loading) return <div className="flex items-center justify-center h-64"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
-
-            if (projects.length === 0) {
-                return (
-                    <div className="fade-in">
-                        <div className="mb-8">
-                            <h1 className="text-3xl font-bold text-gray-800">Results</h1>
-                            <p className="text-gray-500 mt-1">View and export survey results</p>
-                        </div>
-                        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
-                            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <i className="fas fa-chart-bar text-gray-400 text-2xl"></i>
-                            </div>
-                            <h3 className="text-xl font-medium text-gray-800 mb-2">No projects yet</h3>
-                            <p className="text-gray-500">Create a project and collect responses to see results here</p>
-                        </div>
-                    </div>
-                );
-            }
-
-            return (
-                <div className="fade-in">
-                    <div className="flex justify-between items-center mb-8">
-                        <div>
-                            <h1 className="text-3xl font-bold text-gray-800">Results</h1>
-                            <p className="text-gray-500 mt-1">View and export survey results</p>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-                        <div className="lg:col-span-1">
-                            <div className="bg-white rounded-xl shadow-sm p-4">
-                                <h3 className="font-medium text-gray-800 mb-4">Select Project</h3>
-                                <div className="space-y-2">
-                                    {projects.map(project => (
-                                        <button
-                                            key={project.id}
-                                            onClick={() => handleProjectChange(project)}
-                                            className={`w-full text-left p-3 rounded-lg transition ${
-                                                selectedProject?.id === project.id ? 'bg-blue-50 border-2 border-blue-500' : 'bg-gray-50 hover:bg-gray-100'
-                                            }`}
-                                        >
-                                            <div className="font-medium text-gray-800">{project.project_name}</div>
-                                            <div className="text-sm text-gray-500">{project.company_name}</div>
-                                            <div className="text-xs text-gray-400 mt-1">{project.response_count || 0} responses</div>
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="lg:col-span-3">
-                            {loadingResults ? (
-                                <div className="bg-white rounded-xl shadow-sm p-12 text-center">
-                                    <i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
-                                </div>
-                            ) : results ? (
-                                <div className="space-y-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                        <div className="bg-white rounded-xl shadow-sm p-6">
-                                            <div className="text-sm text-gray-500">Total Responses</div>
-                                            <div className="text-3xl font-bold text-gray-800">{results.response_summary?.total || 0}</div>
-                                        </div>
-                                        <div className="bg-white rounded-xl shadow-sm p-6">
-                                            <div className="text-sm text-gray-500">Completed</div>
-                                            <div className="text-3xl font-bold text-green-600">{results.response_summary?.complete || 0}</div>
-                                        </div>
-                                        <div className="bg-white rounded-xl shadow-sm p-6">
-                                            <div className="text-sm text-gray-500">In Progress</div>
-                                            <div className="text-3xl font-bold text-yellow-600">{results.response_summary?.incomplete || 0}</div>
-                                        </div>
-                                    </div>
-                                    {(results.response_summary?.total || 0) === 0 ? (
-                                        <div className="bg-white rounded-xl shadow-sm p-12 text-center">
-                                            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                                <i className="fas fa-inbox text-gray-400 text-2xl"></i>
-                                            </div>
-                                            <h3 className="text-xl font-medium text-gray-800 mb-2">No responses yet</h3>
-                                            <p className="text-gray-500 mb-4">Share the survey link to start collecting responses</p>
-                                            <div className="bg-gray-50 p-4 rounded-lg">
-                                                <p className="text-sm text-gray-600 mb-2">Survey Link:</p>
-                                                <code className="text-blue-600 bg-blue-50 px-3 py-1 rounded">{window.location.origin}/survey/{selectedProject?.access_code}</code>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="bg-white rounded-xl shadow-sm p-6">
-                                            <h3 className="font-medium text-gray-800 mb-4">Response Summary</h3>
-                                            <p className="text-gray-500 text-sm">Detailed analytics and export features coming in Phase 4.</p>
-                                        </div>
-                                    )}
-                                </div>
-                            ) : (
-                                <div className="bg-white rounded-xl shadow-sm p-12 text-center">
-                                    <p className="text-gray-500">Select a project to view results</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        // ============================================================================
-        // MAIN APP
-        // ============================================================================
-        function App() {
-            const [isLoggedIn, setIsLoggedIn] = useState(false);
-            const [currentView, setCurrentView] = useState('dashboard');
-            const [checking, setChecking] = useState(true);
-
-            useEffect(() => { checkAuth(); }, []);
-
-            const checkAuth = async () => {
-                const key = api.getKey();
-                if (key) {
-                    try {
-                        await api.get('/setup/status');
-                        setIsLoggedIn(true);
-                    } catch { api.setKey(''); }
-                }
-                setChecking(false);
-            };
-
-            const handleLogout = () => { api.setKey(''); setIsLoggedIn(false); };
-
-            if (checking) return <div className="min-h-screen flex items-center justify-center bg-gray-100"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
-
-            if (!isLoggedIn) return <LoginScreen onLogin={() => setIsLoggedIn(true)} />;
-
-            const renderView = () => {
-                switch (currentView) {
-                    case 'dashboard': return <Dashboard setCurrentView={setCurrentView} />;
-                    case 'projects': return <Projects />;
-                    case 'questions': return <Questions />;
-                    case 'results': return <Results />;
-                    default: return <Dashboard setCurrentView={setCurrentView} />;
-                }
-            };
-
-            return (
-                <div className="min-h-screen bg-gray-100">
-                    <Sidebar currentView={currentView} setCurrentView={setCurrentView} onLogout={handleLogout} />
-                    <div className="ml-64 p-8">{renderView()}</div>
-                </div>
-            );
-        }
-
-        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-    </script>
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect}=React;
+const REQUIRED_CUSTOM=[1,2,3];
+const API='/api';
+const api={
+    getKey:()=>localStorage.getItem('swingshift_api_key')||'',
+    setKey:k=>localStorage.setItem('swingshift_api_key',k),
+    async req(e,o={}){
+        const r=await fetch(API+e,{...o,headers:{'Content-Type':'application/json','X-API-Key':this.getKey(),...o.headers}});
+        if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Failed');
+        return r.json();
+    },
+    get:e=>api.req(e),
+    post:(e,d)=>api.req(e,{method:'POST',body:JSON.stringify(d)}),
+    put:(e,d)=>api.req(e,{method:'PUT',body:JSON.stringify(d)}),
+    del:e=>api.req(e,{method:'DELETE'})
+};
+
+function Login({onLogin}){
+    const[key,setKey]=useState('');
+    const[err,setErr]=useState('');
+    const[loading,setLoading]=useState(false);
+    const submit=async e=>{
+        e.preventDefault();setLoading(true);setErr('');api.setKey(key);
+        try{await api.get('/setup/status');onLogin();}
+        catch{setErr('Invalid key');api.setKey('');}
+        setLoading(false);
+    };
+    return(<div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-900 to-indigo-900">
+        <div className="bg-white rounded-xl p-8 w-full max-w-md fade-in">
+            <div className="text-center mb-8"><div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-full mb-4"><i className="fas fa-clock text-white text-2xl"></i></div><h1 className="text-2xl font-bold">SwingShift Admin</h1></div>
+            <form onSubmit={submit}><input type="password" value={key} onChange={e=>setKey(e.target.value)} className="w-full px-4 py-3 border rounded-lg mb-4" placeholder="API Key" required/>
+            {err&&<div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg text-sm">{err}</div>}
+            <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50">{loading?'Verifying...':'Sign In'}</button></form>
+        </div>
+    </div>);
+}
+
+function Sidebar({view,setView,logout}){
+    const nav=[{id:'dashboard',icon:'fa-home',l:'Dashboard'},{id:'projects',icon:'fa-folder',l:'Projects'},{id:'questions',icon:'fa-list-check',l:'Questions'},{id:'results',icon:'fa-chart-bar',l:'Results'}];
+    return(<div className="w-64 bg-gray-900 min-h-screen fixed left-0 top-0">
+        <div className="p-6 border-b border-gray-800"><h1 className="text-white font-bold">SwingShift</h1><p className="text-gray-400 text-xs">Admin Panel</p></div>
+        <nav className="p-4">{nav.map(n=><button key={n.id} onClick={()=>setView(n.id)} className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg mb-2 ${view===n.id?'bg-blue-600 text-white':'text-gray-400 hover:bg-gray-800'}`}><i className={`fas ${n.icon}`}></i><span>{n.l}</span></button>)}</nav>
+        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800"><button onClick={logout} className="w-full flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 rounded-lg"><i className="fas fa-sign-out-alt"></i><span>Logout</span></button></div>
+    </div>);
+}
+
+function Dashboard({setView}){
+    const[stats,setStats]=useState(null);
+    useEffect(()=>{(async()=>{try{const s=await api.get('/setup/status');const p=await api.get('/projects');setStats({q:s.questions_loaded,p:p.length,a:p.filter(x=>x.status==='active').length,r:s.total_responses});}catch(e){console.error(e);}})();},[]);
+    if(!stats)return<div className="flex justify-center p-20"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
+    return(<div className="fade-in"><h1 className="text-3xl font-bold mb-8">Dashboard</h1>
+        <div className="grid grid-cols-4 gap-6 mb-8">{[{l:'Questions',v:stats.q},{l:'Projects',v:stats.p},{l:'Active',v:stats.a},{l:'Responses',v:stats.r}].map((s,i)=><div key={i} className="bg-white rounded-xl p-6"><p className="text-gray-500 text-sm">{s.l}</p><p className="text-3xl font-bold">{s.v}</p></div>)}</div>
+        <div className="bg-white rounded-xl p-6"><h2 className="text-xl font-bold mb-4">Quick Actions</h2><button onClick={()=>setView('projects')} className="w-full text-left p-4 bg-blue-50 hover:bg-blue-100 rounded-lg"><i className="fas fa-plus-circle text-blue-600 mr-3"></i>Create New Project</button></div>
+    </div>);
+}
+
+function Projects(){
+    const[projects,setProjects]=useState([]);
+    const[loading,setLoading]=useState(true);
+    const[showCreate,setShowCreate]=useState(false);
+    const[editProj,setEditProj]=useState(null);
+    const load=async()=>{try{setProjects(await api.get('/projects'));}catch(e){console.error(e);}setLoading(false);};
+    useEffect(()=>{load();},[]);
+    const create=async d=>{try{await api.post('/projects',d);setShowCreate(false);load();}catch(e){alert(e.message);}};
+    const status=async(p,s)=>{try{await api.put(`/projects/${p.id}`,{status:s});load();}catch(e){alert(e.message);}};
+    if(loading)return<div className="flex justify-center p-20"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
+    return(<div className="fade-in">
+        <div className="flex justify-between items-center mb-8"><h1 className="text-3xl font-bold">Projects</h1><button onClick={()=>setShowCreate(true)} className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"><i className="fas fa-plus mr-2"></i>New Project</button></div>
+        {projects.length===0?<div className="bg-white rounded-xl p-12 text-center"><p className="text-gray-500 mb-4">No projects</p><button onClick={()=>setShowCreate(true)} className="bg-blue-600 text-white px-6 py-3 rounded-lg">Create Project</button></div>:
+        <div className="bg-white rounded-xl shadow-sm overflow-hidden"><table className="w-full"><thead className="bg-gray-50 border-b"><tr><th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Project</th><th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Status</th><th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Questions</th><th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Responses</th><th className="text-left px-6 py-4 text-sm font-medium text-gray-500">Actions</th></tr></thead>
+        <tbody className="divide-y">{projects.map(p=><tr key={p.id} className="hover:bg-gray-50">
+            <td className="px-6 py-4"><div className="font-medium">{p.project_name}</div><div className="text-sm text-gray-500">{p.company_name} • {p.access_code}</div></td>
+            <td className="px-6 py-4"><span className={`px-3 py-1 rounded-full text-sm ${p.status==='active'?'bg-green-100 text-green-600':p.status==='closed'?'bg-red-100 text-red-600':'bg-gray-100 text-gray-600'}`}>{p.status}</span></td>
+            <td className="px-6 py-4">{p.question_count||0}</td><td className="px-6 py-4">{p.response_count||0}</td>
+            <td className="px-6 py-4"><button onClick={()=>setEditProj(p)} className="p-2 text-blue-600 hover:bg-blue-50 rounded" title="Edit"><i className="fas fa-edit"></i></button>
+            {p.status==='draft'&&<button onClick={()=>status(p,'active')} className="p-2 text-green-600 hover:bg-green-50 rounded"><i className="fas fa-play"></i></button>}
+            {p.status==='active'&&<button onClick={()=>status(p,'closed')} className="p-2 text-red-600 hover:bg-red-50 rounded"><i className="fas fa-stop"></i></button>}
+            <button onClick={()=>{navigator.clipboard.writeText(`${location.origin}/survey/${p.access_code}`);alert('Link copied!');}} className="p-2 text-purple-600 hover:bg-purple-50 rounded"><i className="fas fa-link"></i></button></td>
+        </tr>)}</tbody></table></div>}
+        {showCreate&&<CreateModal onClose={()=>setShowCreate(false)} onCreate={create}/>}
+        {editProj&&<SurveyBuilder project={editProj} onClose={()=>{setEditProj(null);load();}}/>}
+    </div>);
+}
+
+function CreateModal({onClose,onCreate}){
+    const[name,setName]=useState('');const[company,setCompany]=useState('');
+    return(<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="bg-white rounded-xl p-6 w-full max-w-md">
+        <h2 className="text-xl font-bold mb-4">Create Project</h2>
+        <input value={name} onChange={e=>setName(e.target.value)} placeholder="Project Name" className="w-full px-4 py-2 border rounded-lg mb-3"/>
+        <input value={company} onChange={e=>setCompany(e.target.value)} placeholder="Company Name" className="w-full px-4 py-2 border rounded-lg mb-4"/>
+        <div className="flex justify-end space-x-3"><button onClick={onClose} className="px-4 py-2 text-gray-600">Cancel</button><button onClick={()=>onCreate({project_name:name,company_name:company})} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Create</button></div>
+    </div></div>);
+}
+
+function SurveyBuilder({project,onClose}){
+    const[questions,setQuestions]=useState([]);
+    const[customQs,setCustomQs]=useState([]);
+    const[selected,setSelected]=useState(new Set());
+    const[customOpts,setCustomOpts]=useState({});
+    const[cat,setCat]=useState('all');
+    const[loading,setLoading]=useState(true);
+    const[saving,setSaving]=useState(false);
+    const[showAdd,setShowAdd]=useState(false);
+    const[customizeQ,setCustomizeQ]=useState(null);
+    const[queue,setQueue]=useState([]);
+    const cats=['all','Demographics','Health and Alertness','Working Conditions','Shift Schedule Features','Overtime','Day Care/Elder Care'];
+    
+    useEffect(()=>{load();},[]);
+    const load=async()=>{
+        try{
+            const[allQ,projQ,custQ]=await Promise.all([api.get('/questions'),api.get(`/projects/${project.id}/questions`),api.get(`/projects/${project.id}/custom-questions`).catch(()=>[])]);
+            setQuestions(allQ);setCustomQs(custQ||[]);
+            const sel=new Set();const opts={};
+            projQ.forEach(pq=>{sel.add(pq.master_question_id);if(pq.custom_options)opts[pq.master_question_id]=pq.custom_options;});
+            setSelected(sel);setCustomOpts(opts);
+        }catch(e){console.error(e);}
+        setLoading(false);
+    };
+    
+    const toggle=id=>{setSelected(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;});};
+    
+    const handleSave=()=>{
+        const needs=[];
+        selected.forEach(qId=>{const q=questions.find(x=>x.id===qId);if(q&&REQUIRED_CUSTOM.includes(q.question_number)&&(customOpts[qId]||[]).length<2)needs.push(q);});
+        if(needs.length>0){setQueue(needs);setCustomizeQ(needs[0]);}else{doSave();}
+    };
+    
+    const handleCustomSave=(qId,opts)=>{
+        const newOpts={...customOpts,[qId]:opts};setCustomOpts(newOpts);
+        const rem=queue.filter(q=>q.id!==qId);
+        if(rem.length>0){setQueue(rem);setCustomizeQ(rem[0]);}
+        else{setQueue([]);setCustomizeQ(null);doSaveWithOpts(newOpts);}
+    };
+    
+    const doSave=()=>doSaveWithOpts(customOpts);
+    const doSaveWithOpts=async opts=>{
+        setSaving(true);
+        try{await api.post(`/projects/${project.id}/questions/bulk`,{question_ids:Array.from(selected),custom_options:Object.fromEntries(Object.entries(opts).map(([k,v])=>[k,{customOptions:v}]))});onClose();}
+        catch(e){alert('Error: '+e.message);}
+        setSaving(false);
+    };
+    
+    const addCustom=async d=>{try{await api.post(`/projects/${project.id}/custom-questions`,d);setShowAdd(false);load();}catch(e){alert(e.message);}};
+    const delCustom=async id=>{if(!confirm('Delete?'))return;try{await api.del(`/projects/${project.id}/custom-questions/${id}`);load();}catch(e){alert(e.message);}};
+    
+    const filtered=cat==='all'?questions:questions.filter(q=>q.category===cat);
+    if(loading)return<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="bg-white rounded-xl p-8"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div></div>;
+    
+    return(<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b flex justify-between items-center"><div><h2 className="text-xl font-bold">Survey Builder</h2><p className="text-gray-500 text-sm">{project.project_name}</p></div><button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl"><i className="fas fa-times"></i></button></div>
+            <div className="p-4 border-b bg-gray-50">
+                <div className="flex flex-wrap gap-2 mb-3">{cats.map(c=><button key={c} onClick={()=>setCat(c)} className={`px-4 py-2 rounded-lg text-sm font-medium ${cat===c?'bg-blue-600 text-white':'bg-white text-gray-600 hover:bg-gray-100'}`}>{c==='all'?'All':c}</button>)}</div>
+                <div className="flex justify-between items-center"><span className="text-sm text-gray-500">{selected.size} master + {customQs.length} custom = {selected.size+customQs.length} total</span><button onClick={()=>setShowAdd(true)} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700"><i className="fas fa-plus mr-2"></i>Add Custom</button></div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+                {customQs.length>0&&<div className="mb-6"><h3 className="text-sm font-medium text-gray-500 mb-2"><i className="fas fa-star text-yellow-500 mr-2"></i>Custom Questions</h3>
+                {customQs.map(cq=><div key={`c-${cq.id}`} className="p-4 mb-2 rounded-lg border-2 border-green-500 bg-green-50 flex justify-between items-start"><div><span className="text-xs bg-green-200 text-green-700 px-2 py-0.5 rounded mr-2">Custom</span><span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{cq.question_type}</span><p className="mt-1">{cq.question_text}</p></div><button onClick={()=>delCustom(cq.id)} className="text-red-500 hover:text-red-700 p-2"><i className="fas fa-trash-alt"></i></button></div>)}</div>}
+                {filtered.map(q=>{const isSel=selected.has(q.id);const needsC=REQUIRED_CUSTOM.includes(q.question_number);const hasC=(customOpts[q.id]||[]).length>=2;
+                return(<div key={q.id} onClick={()=>toggle(q.id)} className={`p-4 mb-2 rounded-lg border-2 cursor-pointer ${isSel?'border-blue-500 bg-blue-50':'border-gray-200 hover:border-gray-300'}`}>
+                    <div className="flex items-start"><div className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 ${isSel?'border-blue-500 bg-blue-500':'border-gray-300'}`}>{isSel&&<i className="fas fa-check text-white text-xs"></i>}</div>
+                    <div className="flex-1"><div className="flex items-center flex-wrap gap-1 mb-1"><span className="text-sm font-medium text-gray-500">Q{q.question_number}</span><span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{q.category}</span>{needsC&&<span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded">Site-Specific</span>}{needsC&&hasC&&<span className="text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded"><i className="fas fa-check mr-1"></i>Customized</span>}</div><p className="text-gray-800">{q.question_text}</p></div>
+                    {isSel&&needsC&&<button onClick={e=>{e.stopPropagation();setCustomizeQ(q);setQueue([q]);}} className="ml-2 px-3 py-1 text-sm text-blue-600 hover:bg-blue-100 rounded"><i className="fas fa-cog mr-1"></i>{hasC?'Edit':'Customize'}</button>}</div>
+                </div>);})}
+            </div>
+            <div className="p-4 border-t bg-gray-50 flex justify-between items-center"><span className="text-sm text-gray-600">{selected.size+customQs.length} questions</span><div className="space-x-3"><button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg">Cancel</button><button onClick={handleSave} disabled={saving} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">{saving?<><i className="fas fa-spinner fa-spin mr-2"></i>Saving...</>:<><i className="fas fa-save mr-2"></i>Save Survey</>}</button></div></div>
+        </div>
+        {showAdd&&<AddCustomModal onClose={()=>setShowAdd(false)} onSave={addCustom}/>}
+        {customizeQ&&<CustomizeModal question={customizeQ} currentOpts={customOpts[customizeQ.id]||[]} remaining={queue.length} onSave={opts=>handleCustomSave(customizeQ.id,opts)} onClose={()=>{setCustomizeQ(null);setQueue([]);}}/>}
+    </div>);
+}
+
+function AddCustomModal({onClose,onSave}){
+    const[text,setText]=useState('');const[type,setType]=useState('multiple_choice');const[opts,setOpts]=useState([]);const[newOpt,setNewOpt]=useState('');
+    const types=[{v:'multiple_choice',l:'Multiple Choice',n:true},{v:'likert_5',l:'Likert 1-5',n:false},{v:'yes_no',l:'Yes/No',n:false},{v:'multi_select',l:'Multi-Select',n:true},{v:'open_text',l:'Open Text',n:false}];
+    const needsOpts=types.find(t=>t.v===type)?.n;
+    const addOpt=()=>{if(newOpt.trim()){setOpts([...opts,{text:newOpt.trim(),code:String.fromCharCode(97+opts.length)}]);setNewOpt('');}};
+    const save=()=>{if(!text.trim())return alert('Enter question');if(needsOpts&&opts.length<2)return alert('Add 2+ options');onSave({question_text:text,question_type:type,options:needsOpts?opts:[]});};
+    return(<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]"><div className="bg-white rounded-xl p-6 w-full max-w-lg max-h-[80vh] flex flex-col">
+        <h2 className="text-xl font-bold mb-4">Add Custom Question</h2>
+        <div className="flex-1 overflow-y-auto space-y-4">
+            <textarea value={text} onChange={e=>setText(e.target.value)} placeholder="Question text..." className="w-full px-3 py-2 border rounded-lg" rows={3}/>
+            <select value={type} onChange={e=>{setType(e.target.value);setOpts([]);}} className="w-full px-3 py-2 border rounded-lg">{types.map(t=><option key={t.v} value={t.v}>{t.l}</option>)}</select>
+            {needsOpts&&<div><label className="text-sm font-medium">Options:</label>
+            {opts.map((o,i)=><div key={i} className="flex items-center bg-gray-50 p-2 rounded mt-2"><span className="w-8 h-8 bg-blue-100 text-blue-600 rounded flex items-center justify-center mr-2">{o.code.toUpperCase()}</span><span className="flex-1">{o.text}</span><button onClick={()=>setOpts(opts.filter((_,j)=>j!==i))} className="text-red-500"><i className="fas fa-times"></i></button></div>)}
+            <div className="flex gap-2 mt-2"><input value={newOpt} onChange={e=>setNewOpt(e.target.value)} onKeyPress={e=>e.key==='Enter'&&(e.preventDefault(),addOpt())} placeholder="Add option..." className="flex-1 px-3 py-2 border rounded-lg"/><button onClick={addOpt} className="px-4 py-2 bg-green-600 text-white rounded-lg"><i className="fas fa-plus"></i></button></div></div>}
+        </div>
+        <div className="flex justify-end space-x-3 mt-4"><button onClick={onClose} className="px-4 py-2 text-gray-600">Cancel</button><button onClick={save} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Add</button></div>
+    </div></div>);
+}
+
+function CustomizeModal({question,currentOpts,remaining,onSave,onClose}){
+    const[opts,setOpts]=useState(currentOpts||[]);const[newOpt,setNewOpt]=useState('');
+    const addOpt=()=>{if(newOpt.trim()){setOpts([...opts,{text:newOpt.trim(),code:String.fromCharCode(97+opts.length)}]);setNewOpt('');}};
+    const save=()=>{if(opts.length<2)return alert('Add 2+ options');onSave(opts);};
+    return(<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60]"><div className="bg-white rounded-xl p-6 w-full max-w-lg max-h-[80vh] flex flex-col">
+        <div className="flex justify-between items-center mb-4"><div><h2 className="text-xl font-bold">Customize Options</h2>{remaining>1&&<span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded">{remaining} questions need customization</span>}</div><button onClick={onClose} className="text-gray-400 hover:text-gray-600"><i className="fas fa-times text-xl"></i></button></div>
+        <div className="bg-blue-50 p-3 rounded-lg mb-4"><p className="text-sm"><strong>Q{question.question_number}:</strong> {question.question_text}</p></div>
+        <div className="flex-1 overflow-y-auto"><label className="text-sm font-medium">Enter options for your site:</label>
+        {opts.map((o,i)=><div key={i} className="flex items-center bg-gray-50 p-2 rounded mt-2"><span className="w-8 h-8 bg-blue-100 text-blue-600 rounded flex items-center justify-center mr-2">{o.code.toUpperCase()}</span><span className="flex-1">{o.text}</span><button onClick={()=>setOpts(opts.filter((_,j)=>j!==i))} className="text-red-500"><i className="fas fa-times"></i></button></div>)}
+        <div className="flex gap-2 mt-3"><input value={newOpt} onChange={e=>setNewOpt(e.target.value)} onKeyPress={e=>e.key==='Enter'&&(e.preventDefault(),addOpt())} placeholder="e.g., Operations, Maintenance..." className="flex-1 px-3 py-2 border rounded-lg"/><button onClick={addOpt} className="px-4 py-2 bg-green-600 text-white rounded-lg"><i className="fas fa-plus"></i></button></div></div>
+        <div className="flex justify-end space-x-3 mt-4 border-t pt-4"><button onClick={onClose} className="px-4 py-2 text-gray-600">Cancel</button><button onClick={save} className="px-6 py-2 bg-blue-600 text-white rounded-lg">{remaining>1?`Next (${remaining-1} more)`:'Save & Finish'}</button></div>
+    </div></div>);
+}
+
+function Questions(){
+    const[questions,setQuestions]=useState([]);const[cat,setCat]=useState('all');const[exp,setExp]=useState(null);
+    useEffect(()=>{api.get('/questions').then(setQuestions).catch(console.error);},[]);
+    const cats=['all','Demographics','Health and Alertness','Working Conditions','Shift Schedule Features','Overtime','Day Care/Elder Care'];
+    const filtered=cat==='all'?questions:questions.filter(q=>q.category===cat);
+    return(<div className="fade-in"><h1 className="text-3xl font-bold mb-2">Question Bank</h1><p className="text-gray-500 mb-6">97 master questions</p>
+        <div className="flex flex-wrap gap-2 mb-6">{cats.map(c=><button key={c} onClick={()=>setCat(c)} className={`px-4 py-2 rounded-lg text-sm ${cat===c?'bg-blue-600 text-white':'bg-white text-gray-600 hover:bg-gray-100'}`}>{c==='all'?'All':c}</button>)}</div>
+        <div className="bg-white rounded-xl shadow-sm divide-y">{filtered.map(q=><div key={q.id} className="p-4 hover:bg-gray-50 cursor-pointer" onClick={()=>setExp(exp===q.id?null:q.id)}>
+            <div className="flex items-start"><span className="w-10 h-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-bold mr-4">{q.question_number}</span>
+            <div className="flex-1"><div className="flex items-center gap-2 mb-1"><span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{q.category}</span>{REQUIRED_CUSTOM.includes(q.question_number)&&<span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded">Site-Specific</span>}</div><p>{q.question_text}</p></div>
+            <i className={`fas fa-chevron-${exp===q.id?'up':'down'} text-gray-400`}></i></div>
+            {exp===q.id&&q.options&&<div className="mt-3 ml-14 p-3 bg-gray-50 rounded-lg"><p className="text-sm font-medium text-gray-600 mb-2">Default Options:</p>{q.options.map((o,i)=><div key={i} className="text-sm text-gray-700">{o.option_code}. {o.option_text}</div>)}</div>}
+        </div>)}</div>
+    </div>);
+}
+
+function Results(){
+    const[projects,setProjects]=useState([]);const[sel,setSel]=useState(null);const[results,setResults]=useState(null);
+    useEffect(()=>{api.get('/projects').then(p=>{setProjects(p);if(p.length){setSel(p[0]);loadR(p[0].id);}});},[]);
+    const loadR=async id=>{try{setResults(await api.get(`/projects/${id}/results`));}catch{setResults(null);}};
+    return(<div className="fade-in"><h1 className="text-3xl font-bold mb-8">Results</h1>
+        <div className="grid grid-cols-4 gap-6"><div className="col-span-1 bg-white rounded-xl shadow-sm p-4"><h3 className="font-medium mb-4">Projects</h3>
+        {projects.map(p=><button key={p.id} onClick={()=>{setSel(p);loadR(p.id);}} className={`w-full text-left p-3 rounded-lg mb-2 ${sel?.id===p.id?'bg-blue-50 border-2 border-blue-500':'bg-gray-50'}`}><div className="font-medium">{p.project_name}</div><div className="text-sm text-gray-500">{p.response_count||0} responses</div></button>)}</div>
+        <div className="col-span-3">{results&&<div className="grid grid-cols-3 gap-4"><div className="bg-white rounded-xl p-6"><p className="text-gray-500 text-sm">Total</p><p className="text-3xl font-bold">{results.response_summary?.total||0}</p></div><div className="bg-white rounded-xl p-6"><p className="text-gray-500 text-sm">Complete</p><p className="text-3xl font-bold text-green-600">{results.response_summary?.complete||0}</p></div><div className="bg-white rounded-xl p-6"><p className="text-gray-500 text-sm">In Progress</p><p className="text-3xl font-bold text-yellow-600">{results.response_summary?.incomplete||0}</p></div></div>}</div></div>
+    </div>);
+}
+
+function App(){
+    const[loggedIn,setLoggedIn]=useState(false);const[view,setView]=useState('dashboard');const[checking,setChecking]=useState(true);
+    useEffect(()=>{if(api.getKey())api.get('/setup/status').then(()=>setLoggedIn(true)).catch(()=>api.setKey('')).finally(()=>setChecking(false));else setChecking(false);},[]);
+    if(checking)return<div className="min-h-screen flex items-center justify-center"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
+    if(!loggedIn)return<Login onLogin={()=>setLoggedIn(true)}/>;
+    return(<div className="min-h-screen bg-gray-100"><Sidebar view={view} setView={setView} logout={()=>{api.setKey('');setLoggedIn(false);}}/><div className="ml-64 p-8">{view==='dashboard'&&<Dashboard setView={setView}/>}{view==='projects'&&<Projects/>}{view==='questions'&&<Questions/>}{view==='results'&&<Results/>}</div></div>);
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
 </body>
 </html>
-
 <!-- I did no harm and this file is not truncated -->
