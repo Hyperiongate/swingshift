@@ -188,6 +188,9 @@ class ProjectQuestion(db.Model):
     # Option to customize question text for this project
     custom_text = db.Column(db.Text, nullable=True)  # If null, use master question text
     
+    # Custom response options for this project (JSON array of {text, code})
+    custom_options_json = db.Column(db.Text, nullable=True)  # If set, overrides master question options
+    
     # For breakout analysis
     is_breakout = db.Column(db.Boolean, default=False)  # Use this question for segmentation
     
@@ -197,7 +200,22 @@ class ProjectQuestion(db.Model):
     master_question = db.relationship('MasterQuestion')
     
     def to_dict(self):
+        import json
         mq = self.master_question
+        
+        # Use custom options if set, otherwise use master question options
+        if self.custom_options_json:
+            try:
+                custom_opts = json.loads(self.custom_options_json)
+                response_options = [
+                    {'option_text': opt['text'], 'option_code': opt['code'], 'numeric_value': i + 1, 'display_order': i + 1}
+                    for i, opt in enumerate(custom_opts)
+                ]
+            except:
+                response_options = [opt.to_dict() for opt in mq.response_options]
+        else:
+            response_options = [opt.to_dict() for opt in mq.response_options]
+        
         return {
             'id': self.id,
             'project_id': self.project_id,
@@ -208,8 +226,10 @@ class ProjectQuestion(db.Model):
             'category': mq.category,
             'likert_low_label': mq.likert_low_label,
             'likert_high_label': mq.likert_high_label,
-            'response_options': [opt.to_dict() for opt in mq.response_options],
+            'response_options': response_options,
             'master_question_id': mq.id,
+            'question_number': mq.question_number,
+            'has_custom_options': bool(self.custom_options_json),
         }
 
 
