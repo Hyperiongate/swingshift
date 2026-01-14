@@ -102,6 +102,20 @@ def admin_panel():
 
 
 # ============================================================================
+# EMPLOYEE SURVEY (Public Web UI)
+# ============================================================================
+
+@app.route('/survey')
+@app.route('/survey/')
+@app.route('/survey/<access_code>')
+def survey_page(access_code=None):
+    """Serve the employee survey interface as static file"""
+    import os
+    template_path = os.path.join(app.root_path, 'templates', 'survey.html')
+    return send_file(template_path, mimetype='text/html')
+
+
+# ============================================================================
 # QUESTION BANK ENDPOINTS
 # ============================================================================
 
