@@ -95,8 +95,10 @@ def health_check():
 @app.route('/admin')
 @app.route('/admin/')
 def admin_panel():
-    """Serve the admin panel web interface"""
-    return render_template('admin.html')
+    """Serve the admin panel web interface as static file (not Jinja template)"""
+    import os
+    template_path = os.path.join(app.root_path, 'templates', 'admin.html')
+    return send_file(template_path, mimetype='text/html')
 
 
 # ============================================================================
