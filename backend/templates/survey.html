@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<!--
+SwingShift Survey System - Employee Survey Interface
+=====================================================
+Last Updated: January 14, 2026
+
+A mobile-friendly survey-taking interface for employees.
+Built with React and Tailwind CSS, served as static file from Flask.
+
+FEATURES:
+- Clean, distraction-free survey experience
+- Mobile-responsive design
+- Progress bar showing completion
+- One question at a time
+- Auto-save answers
+- Anonymous participation
+
+NOTES FOR FUTURE AI:
+- This is a single-file React app using CDN imports (no build step)
+- Survey code is extracted from URL path
+- All answers saved via API calls
+- No authentication required (public endpoint)
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Survey - SwingShift</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .fade-in { animation: fadeIn 0.4s ease-in; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .pulse { animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+        body { background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); min-height: 100vh; }
+        .option-btn { transition: all 0.2s ease; }
+        .option-btn:hover { transform: translateX(4px); }
+        .option-btn.selected { background: #3b82f6; color: white; border-color: #3b82f6; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        // Get survey code from URL
+        const getSurveyCode = () => {
+            const path = window.location.pathname;
+            const match = path.match(/\/survey\/([A-Za-z0-9]+)/);
+            return match ? match[1].toUpperCase() : null;
+        };
+
+        // API Helper
+        const api = {
+            async get(endpoint) {
+                const response = await fetch(`/api${endpoint}`);
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+                    throw new Error(error.error || 'Request failed');
+                }
+                return response.json();
+            },
+            async post(endpoint, data) {
+                const response = await fetch(`/api${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+                    throw new Error(error.error || 'Request failed');
+                }
+                return response.json();
+            }
+        };
+
+        // Welcome Screen
+        function WelcomeScreen({ survey, onStart, loading }) {
+            return (
+                <div className="fade-in text-center">
+                    <div className="w-20 h-20 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i className="fas fa-clipboard-list text-white text-3xl"></i>
+                    </div>
+                    <h1 className="text-2xl font-bold text-gray-800 mb-2">{survey.company_name}</h1>
+                    <h2 className="text-lg text-gray-600 mb-6">{survey.project_name}</h2>
+                    
+                    <div className="bg-blue-50 rounded-lg p-4 mb-6 text-left">
+                        <h3 className="font-medium text-gray-800 mb-2">
+                            <i className="fas fa-info-circle text-blue-500 mr-2"></i>
+                            Before You Begin
+                        </h3>
+                        <ul className="text-sm text-gray-600 space-y-2">
+                            <li><i className="fas fa-check text-green-500 mr-2"></i>This survey is completely anonymous</li>
+                            <li><i className="fas fa-check text-green-500 mr-2"></i>{survey.total_questions} questions, about 10-15 minutes</li>
+                            <li><i className="fas fa-check text-green-500 mr-2"></i>Your answers are automatically saved</li>
+                            <li><i className="fas fa-check text-green-500 mr-2"></i>Be honest - your feedback matters!</li>
+                        </ul>
+                    </div>
+                    
+                    <button
+                        onClick={onStart}
+                        disabled={loading}
+                        className="w-full bg-blue-600 text-white py-4 rounded-xl font-medium text-lg hover:bg-blue-700 transition disabled:opacity-50"
+                    >
+                        {loading ? (
+                            <><i className="fas fa-spinner fa-spin mr-2"></i>Starting...</>
+                        ) : (
+                            <><i className="fas fa-play mr-2"></i>Start Survey</>
+                        )}
+                    </button>
+                </div>
+            );
+        }
+
+        // Progress Bar
+        function ProgressBar({ current, total, showProgress }) {
+            if (!showProgress) return null;
+            const percent = Math.round((current / total) * 100);
+            return (
+                <div className="mb-6">
+                    <div className="flex justify-between text-sm text-gray-500 mb-1">
+                        <span>Question {current} of {total}</span>
+                        <span>{percent}% complete</span>
+                    </div>
+                    <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
+                        <div 
+                            className="h-full bg-blue-500 transition-all duration-500"
+                            style={{ width: `${percent}%` }}
+                        ></div>
+                    </div>
+                </div>
+            );
+        }
+
+        // Question Component
+        function Question({ question, answer, onAnswer, onNext, onPrev, isFirst, isLast, saving }) {
+            const [selected, setSelected] = useState(answer);
+            const [multiSelected, setMultiSelected] = useState(
+                answer ? (typeof answer === 'string' ? answer.split(',') : []) : []
+            );
+
+            useEffect(() => {
+                setSelected(answer);
+                if (question.question_type === 'multi_select') {
+                    setMultiSelected(answer ? (typeof answer === 'string' ? answer.split(',') : []) : []);
+                }
+            }, [question.id, answer]);
+
+            const handleSelect = (optionCode, optionText, numericValue) => {
+                if (question.question_type === 'multi_select') {
+                    const newSelection = multiSelected.includes(optionCode)
+                        ? multiSelected.filter(c => c !== optionCode)
+                        : [...multiSelected, optionCode];
+                    setMultiSelected(newSelection);
+                    onAnswer({
+                        answer_code: newSelection.join(','),
+                        answer_text: newSelection.join(','),
+                        answer_multi: newSelection
+                    });
+                } else {
+                    setSelected(optionCode);
+                    onAnswer({
+                        answer_code: optionCode,
+                        answer_text: optionText,
+                        answer_numeric: numericValue
+                    });
+                }
+            };
+
+            const canProceed = question.question_type === 'multi_select' 
+                ? multiSelected.length > 0 
+                : selected !== null && selected !== undefined;
+
+            const renderOptions = () => {
+                const options = question.response_options || question.options || [];
+                
+                if (question.question_type === 'likert_5') {
+                    return (
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-xs text-gray-500 px-2 mb-1">
+                                <span>{question.likert_low_label || 'Strongly Disagree'}</span>
+                                <span>{question.likert_high_label || 'Strongly Agree'}</span>
+                            </div>
+                            <div className="flex justify-between gap-2">
+                                {[1, 2, 3, 4, 5].map(num => (
+                                    <button
+                                        key={num}
+                                        onClick={() => handleSelect(String(num), String(num), num)}
+                                        className={`flex-1 py-4 rounded-lg border-2 font-bold text-lg transition ${
+                                            selected === String(num)
+                                                ? 'bg-blue-500 text-white border-blue-500'
+                                                : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+                                        }`}
+                                    >
+                                        {num}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                }
+
+                return (
+                    <div className="space-y-2">
+                        {options.map((opt, idx) => {
+                            const isSelected = question.question_type === 'multi_select'
+                                ? multiSelected.includes(opt.option_code)
+                                : selected === opt.option_code;
+                            
+                            return (
+                                <button
+                                    key={idx}
+                                    onClick={() => handleSelect(opt.option_code, opt.option_text, opt.numeric_value)}
+                                    className={`option-btn w-full text-left p-4 rounded-lg border-2 transition ${
+                                        isSelected
+                                            ? 'selected'
+                                            : 'bg-white text-gray-700 border-gray-200 hover:border-blue-300'
+                                    }`}
+                                >
+                                    <div className="flex items-center">
+                                        <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center mr-3 ${
+                                            isSelected ? 'border-white bg-white' : 'border-gray-300'
+                                        }`}>
+                                            {isSelected && (
+                                                <i className={`fas fa-check text-xs ${isSelected ? 'text-blue-500' : ''}`}></i>
+                                            )}
+                                        </div>
+                                        <span className="flex-1">{opt.option_text}</span>
+                                    </div>
+                                </button>
+                            );
+                        })}
+                    </div>
+                );
+            };
+
+            return (
+                <div className="fade-in">
+                    <div className="mb-6">
+                        <span className="inline-block bg-blue-100 text-blue-700 text-xs font-medium px-2 py-1 rounded mb-2">
+                            {question.category}
+                        </span>
+                        <h2 className="text-xl font-medium text-gray-800 leading-relaxed">
+                            {question.question_text}
+                        </h2>
+                        {question.question_type === 'multi_select' && (
+                            <p className="text-sm text-gray-500 mt-1">
+                                <i className="fas fa-info-circle mr-1"></i>
+                                Select all that apply
+                            </p>
+                        )}
+                    </div>
+
+                    {renderOptions()}
+
+                    <div className="flex gap-3 mt-8">
+                        {!isFirst && (
+                            <button
+                                onClick={onPrev}
+                                className="flex-1 py-3 rounded-lg border-2 border-gray-300 text-gray-600 font-medium hover:bg-gray-50 transition"
+                            >
+                                <i className="fas fa-arrow-left mr-2"></i>Back
+                            </button>
+                        )}
+                        <button
+                            onClick={onNext}
+                            disabled={!canProceed || saving}
+                            className={`flex-1 py-3 rounded-lg font-medium transition ${
+                                canProceed && !saving
+                                    ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                    : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            }`}
+                        >
+                            {saving ? (
+                                <><i className="fas fa-spinner fa-spin mr-2"></i>Saving...</>
+                            ) : isLast ? (
+                                <><i className="fas fa-check mr-2"></i>Complete Survey</>
+                            ) : (
+                                <>Next<i className="fas fa-arrow-right ml-2"></i></>
+                            )}
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
+        // Completion Screen
+        function CompletionScreen() {
+            return (
+                <div className="fade-in text-center py-8">
+                    <div className="w-24 h-24 bg-green-500 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i className="fas fa-check text-white text-4xl"></i>
+                    </div>
+                    <h1 className="text-2xl font-bold text-gray-800 mb-4">Thank You!</h1>
+                    <p className="text-gray-600 mb-6">
+                        Your survey has been submitted successfully.<br />
+                        Your feedback is valuable and will help improve working conditions.
+                    </p>
+                    <div className="bg-blue-50 rounded-lg p-4 text-sm text-gray-600">
+                        <i className="fas fa-shield-alt text-blue-500 mr-2"></i>
+                        Your responses are anonymous and confidential.
+                    </div>
+                </div>
+            );
+        }
+
+        // Error Screen
+        function ErrorScreen({ message, onRetry }) {
+            return (
+                <div className="fade-in text-center py-8">
+                    <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <i className="fas fa-exclamation-triangle text-red-500 text-3xl"></i>
+                    </div>
+                    <h1 className="text-xl font-bold text-gray-800 mb-2">Oops!</h1>
+                    <p className="text-gray-600 mb-6">{message}</p>
+                    {onRetry && (
+                        <button
+                            onClick={onRetry}
+                            className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition"
+                        >
+                            <i className="fas fa-redo mr-2"></i>Try Again
+                        </button>
+                    )}
+                </div>
+            );
+        }
+
+        // Code Entry Screen (if no code in URL)
+        function CodeEntryScreen({ onSubmit, loading, error }) {
+            const [code, setCode] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                if (code.trim()) {
+                    onSubmit(code.trim().toUpperCase());
+                }
+            };
+
+            return (
+                <div className="fade-in">
+                    <div className="text-center mb-8">
+                        <div className="w-16 h-16 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                            <i className="fas fa-clipboard-list text-white text-2xl"></i>
+                        </div>
+                        <h1 className="text-2xl font-bold text-gray-800">Employee Survey</h1>
+                        <p className="text-gray-500 mt-2">Enter your survey code to begin</p>
+                    </div>
+
+                    <form onSubmit={handleSubmit}>
+                        <div className="mb-4">
+                            <input
+                                type="text"
+                                value={code}
+                                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                                className="w-full px-4 py-4 text-center text-2xl font-mono tracking-widest border-2 border-gray-300 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none uppercase"
+                                placeholder="XXXXXX"
+                                maxLength={10}
+                                autoFocus
+                            />
+                        </div>
+
+                        {error && (
+                            <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm text-center">
+                                <i className="fas fa-exclamation-circle mr-2"></i>{error}
+                            </div>
+                        )}
+
+                        <button
+                            type="submit"
+                            disabled={loading || code.length < 4}
+                            className="w-full bg-blue-600 text-white py-4 rounded-xl font-medium text-lg hover:bg-blue-700 transition disabled:opacity-50"
+                        >
+                            {loading ? (
+                                <><i className="fas fa-spinner fa-spin mr-2"></i>Loading...</>
+                            ) : (
+                                <><i className="fas fa-arrow-right mr-2"></i>Continue</>
+                            )}
+                        </button>
+                    </form>
+                </div>
+            );
+        }
+
+        // Main App
+        function App() {
+            const [surveyCode, setSurveyCode] = useState(getSurveyCode());
+            const [survey, setSurvey] = useState(null);
+            const [responseCode, setResponseCode] = useState(null);
+            const [currentQuestion, setCurrentQuestion] = useState(0);
+            const [answers, setAnswers] = useState({});
+            const [stage, setStage] = useState('loading'); // loading, code-entry, welcome, questions, complete, error
+            const [error, setError] = useState(null);
+            const [loading, setLoading] = useState(false);
+            const [saving, setSaving] = useState(false);
+
+            useEffect(() => {
+                if (surveyCode) {
+                    loadSurvey(surveyCode);
+                } else {
+                    setStage('code-entry');
+                }
+            }, []);
+
+            const loadSurvey = async (code) => {
+                setLoading(true);
+                setError(null);
+                try {
+                    const data = await api.get(`/survey/${code}`);
+                    setSurvey(data);
+                    setSurveyCode(code);
+                    setStage('welcome');
+                } catch (err) {
+                    setError(err.message);
+                    setStage('code-entry');
+                }
+                setLoading(false);
+            };
+
+            const startSurvey = async () => {
+                setLoading(true);
+                try {
+                    const data = await api.post(`/survey/${surveyCode}/start`, {});
+                    setResponseCode(data.response_code);
+                    setStage('questions');
+                } catch (err) {
+                    setError(err.message);
+                    setStage('error');
+                }
+                setLoading(false);
+            };
+
+            const saveAnswer = async (questionData, answerData) => {
+                setSaving(true);
+                try {
+                    await api.post(`/survey/${surveyCode}/answer`, {
+                        response_code: responseCode,
+                        project_question_id: questionData.id,
+                        ...answerData
+                    });
+                } catch (err) {
+                    console.error('Failed to save answer:', err);
+                }
+                setSaving(false);
+            };
+
+            const handleAnswer = (answerData) => {
+                const question = survey.questions[currentQuestion];
+                setAnswers(prev => ({
+                    ...prev,
+                    [question.id]: answerData.answer_code
+                }));
+            };
+
+            const handleNext = async () => {
+                const question = survey.questions[currentQuestion];
+                const answer = answers[question.id];
+                
+                // Save current answer
+                if (answer) {
+                    await saveAnswer(question, {
+                        answer_code: answer,
+                        answer_text: answer
+                    });
+                }
+
+                if (currentQuestion < survey.questions.length - 1) {
+                    setCurrentQuestion(prev => prev + 1);
+                } else {
+                    // Complete the survey
+                    try {
+                        await api.post(`/survey/${surveyCode}/complete`, {
+                            response_code: responseCode
+                        });
+                        setStage('complete');
+                    } catch (err) {
+                        setError('Failed to complete survey. Please try again.');
+                    }
+                }
+            };
+
+            const handlePrev = () => {
+                if (currentQuestion > 0) {
+                    setCurrentQuestion(prev => prev - 1);
+                }
+            };
+
+            // Loading screen
+            if (stage === 'loading') {
+                return (
+                    <div className="min-h-screen flex items-center justify-center">
+                        <div className="text-center text-white">
+                            <i className="fas fa-spinner fa-spin text-4xl mb-4"></i>
+                            <p>Loading survey...</p>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen py-8 px-4">
+                    <div className="max-w-lg mx-auto">
+                        <div className="bg-white rounded-2xl shadow-xl p-6 md:p-8">
+                            {stage === 'code-entry' && (
+                                <CodeEntryScreen
+                                    onSubmit={loadSurvey}
+                                    loading={loading}
+                                    error={error}
+                                />
+                            )}
+
+                            {stage === 'welcome' && survey && (
+                                <WelcomeScreen
+                                    survey={survey}
+                                    onStart={startSurvey}
+                                    loading={loading}
+                                />
+                            )}
+
+                            {stage === 'questions' && survey && (
+                                <>
+                                    <ProgressBar
+                                        current={currentQuestion + 1}
+                                        total={survey.questions.length}
+                                        showProgress={survey.show_progress}
+                                    />
+                                    <Question
+                                        question={survey.questions[currentQuestion]}
+                                        answer={answers[survey.questions[currentQuestion].id]}
+                                        onAnswer={handleAnswer}
+                                        onNext={handleNext}
+                                        onPrev={handlePrev}
+                                        isFirst={currentQuestion === 0}
+                                        isLast={currentQuestion === survey.questions.length - 1}
+                                        saving={saving}
+                                    />
+                                </>
+                            )}
+
+                            {stage === 'complete' && <CompletionScreen />}
+
+                            {stage === 'error' && (
+                                <ErrorScreen
+                                    message={error || 'Something went wrong'}
+                                    onRetry={() => {
+                                        setStage('welcome');
+                                        setError(null);
+                                    }}
+                                />
+                            )}
+                        </div>
+
+                        <p className="text-center text-white/60 text-sm mt-6">
+                            Powered by Shiftwork Solutions LLC
+                        </p>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
+
+<!-- I did no harm and this file is not truncated -->
