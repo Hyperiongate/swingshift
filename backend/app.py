@@ -401,6 +401,7 @@ def add_project_question(project_id):
 def add_bulk_questions(project_id):
     """Add multiple questions from master bank to a project (admin only)
     This replaces all existing questions with the new selection.
+    Also supports custom_options for per-project option overrides.
     """
     auth_error = require_admin()
     if auth_error:
@@ -411,6 +412,7 @@ def add_bulk_questions(project_id):
     
     # Accept either 'question_ids' or 'master_question_ids'
     question_ids = data.get('question_ids', data.get('master_question_ids', []))
+    custom_options = data.get('custom_options', {})  # {question_id: {customOptions: [...]}}
     
     # Clear existing project questions
     ProjectQuestion.query.filter_by(project_id=project_id).delete()
@@ -418,11 +420,16 @@ def add_bulk_questions(project_id):
     # Add new questions
     added = []
     for i, mq_id in enumerate(question_ids):
+        # Get custom options for this question if any
+        q_custom = custom_options.get(str(mq_id), {})
+        custom_opts = q_custom.get('customOptions', [])
+        
         pq = ProjectQuestion(
             project_id=project_id,
             master_question_id=mq_id,
             question_order=i + 1,
-            is_breakout=False
+            is_breakout=False,
+            custom_options_json=json.dumps(custom_opts) if custom_opts else None
         )
         db.session.add(pq)
         added.append(mq_id)
@@ -433,6 +440,83 @@ def add_bulk_questions(project_id):
         'added': added,
         'count': len(added)
     }), 201
+
+
+# ============================================================================
+# CUSTOM QUESTIONS ENDPOINTS
+# ============================================================================
+
+@app.route('/api/projects/<int:project_id>/custom-questions', methods=['GET'])
+def get_custom_questions(project_id):
+    """Get all custom questions for a project"""
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+    
+    project = Project.query.get_or_404(project_id)
+    custom_questions = CustomQuestion.query.filter_by(project_id=project_id).order_by(CustomQuestion.question_order).all()
+    
+    return jsonify([cq.to_dict() for cq in custom_questions])
+
+
+@app.route('/api/projects/<int:project_id>/custom-questions', methods=['POST'])
+def create_custom_question(project_id):
+    """Create a new custom question for a project"""
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+    
+    project = Project.query.get_or_404(project_id)
+    data = request.get_json()
+    
+    # Get max question order
+    max_order = db.session.query(db.func.max(CustomQuestion.question_order)).filter_by(project_id=project_id).scalar() or 0
+    
+    # Create custom question
+    cq = CustomQuestion(
+        project_id=project_id,
+        question_text=data['question_text'],
+        question_type=data['question_type'],
+        question_order=max_order + 1,
+        likert_low_label='Strongly Disagree' if data['question_type'] == 'likert_5' else None,
+        likert_high_label='Strongly Agree' if data['question_type'] == 'likert_5' else None
+    )
+    db.session.add(cq)
+    db.session.flush()
+    
+    # Add response options if provided
+    options = data.get('options', [])
+    for i, opt in enumerate(options):
+        ro = CustomResponseOption(
+            question_id=cq.id,
+            option_text=opt['text'],
+            option_code=opt['code'],
+            numeric_value=i + 1,
+            display_order=i + 1
+        )
+        db.session.add(ro)
+    
+    db.session.commit()
+    
+    return jsonify(cq.to_dict()), 201
+
+
+@app.route('/api/projects/<int:project_id>/custom-questions/<int:question_id>', methods=['DELETE'])
+def delete_custom_question(project_id, question_id):
+    """Delete a custom question"""
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+    
+    cq = CustomQuestion.query.filter_by(id=question_id, project_id=project_id).first_or_404()
+    
+    # Delete associated response options
+    CustomResponseOption.query.filter_by(question_id=cq.id).delete()
+    
+    db.session.delete(cq)
+    db.session.commit()
+    
+    return jsonify({'status': 'deleted'}), 200
 
 
 # ============================================================================
@@ -933,6 +1017,36 @@ def setup_status():
             'database_connected': False,
             'error': str(e)
         }), 500
+
+
+@app.route('/api/setup/migrate', methods=['GET'])
+def migrate_database():
+    """
+    Run database migrations to add new columns.
+    Visit: https://swingshift.onrender.com/api/setup/migrate
+    """
+    results = {'migrations': [], 'errors': []}
+    
+    try:
+        # Add custom_options_json column to project_questions if not exists
+        from sqlalchemy import text
+        with db.engine.connect() as conn:
+            # Check if column exists
+            result = conn.execute(text("""
+                SELECT column_name FROM information_schema.columns 
+                WHERE table_name='project_questions' AND column_name='custom_options_json'
+            """))
+            if not result.fetchone():
+                conn.execute(text("ALTER TABLE project_questions ADD COLUMN custom_options_json TEXT"))
+                conn.commit()
+                results['migrations'].append('Added custom_options_json to project_questions')
+            else:
+                results['migrations'].append('custom_options_json already exists')
+                
+    except Exception as e:
+        results['errors'].append(f'Migration error: {str(e)}')
+    
+    return jsonify(results)
 
 
 # ============================================================================
