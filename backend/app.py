@@ -707,6 +707,112 @@ def seed_questions():
 
 
 # ============================================================================
+# DATABASE SETUP ENDPOINT (Web-based initialization)
+# ============================================================================
+
+@app.route('/api/setup', methods=['GET'])
+def setup_database():
+    """
+    Initialize database tables and import questions via web request.
+    This replaces the need to use the Render Shell.
+    Visit: https://swingshift.onrender.com/api/setup
+    """
+    results = {
+        'tables_created': False,
+        'questions_imported': 0,
+        'errors': []
+    }
+    
+    try:
+        # Step 1: Create all tables
+        db.create_all()
+        results['tables_created'] = True
+    except Exception as e:
+        results['errors'].append(f'Table creation error: {str(e)}')
+        return jsonify(results), 500
+    
+    try:
+        # Step 2: Import questions if not already present
+        existing_count = MasterQuestion.query.count()
+        if existing_count >= 97:
+            results['questions_imported'] = existing_count
+            results['message'] = 'Questions already imported'
+            return jsonify(results)
+        
+        # Import all 97 questions
+        from import_questions import QUESTIONS, likert
+        
+        count = 0
+        for q in QUESTIONS:
+            if MasterQuestion.query.filter_by(question_number=q['n']).first():
+                continue
+            
+            likert_low, likert_high = None, None
+            if q['ty'] == 'likert_5':
+                likert_low, likert_high = 'Strongly Disagree', 'Strongly Agree'
+            
+            mq = MasterQuestion(
+                question_text=q['t'],
+                question_number=q['n'],
+                category=q['c'],
+                question_type=q['ty'],
+                likert_low_label=likert_low,
+                likert_high_label=likert_high,
+                has_special_calculation=bool(q.get('sc')),
+                calculation_type=q.get('sc')
+            )
+            db.session.add(mq)
+            db.session.flush()
+            
+            for i, opt in enumerate(q.get('o', [])):
+                ro = ResponseOption(
+                    question_id=mq.id,
+                    option_text=opt[0],
+                    option_code=opt[1],
+                    numeric_value=opt[2],
+                    display_order=i + 1,
+                    calculation_value=opt[3] if len(opt) > 3 else None
+                )
+                db.session.add(ro)
+            
+            count += 1
+        
+        db.session.commit()
+        results['questions_imported'] = count
+        results['total_questions'] = MasterQuestion.query.count()
+        results['message'] = f'Successfully imported {count} questions'
+        
+    except Exception as e:
+        db.session.rollback()
+        results['errors'].append(f'Question import error: {str(e)}')
+        return jsonify(results), 500
+    
+    return jsonify(results)
+
+
+@app.route('/api/setup/status', methods=['GET'])
+def setup_status():
+    """Check the current database setup status"""
+    try:
+        question_count = MasterQuestion.query.count()
+        project_count = Project.query.count()
+        response_count = SurveyResponse.query.count()
+        
+        return jsonify({
+            'database_connected': True,
+            'questions_loaded': question_count,
+            'projects_created': project_count,
+            'total_responses': response_count,
+            'ready': question_count >= 97
+        })
+    except Exception as e:
+        return jsonify({
+            'database_connected': False,
+            'error': str(e)
+        }), 500
+
+
+# ============================================================================
 # ERROR HANDLERS
 # ============================================================================
 
