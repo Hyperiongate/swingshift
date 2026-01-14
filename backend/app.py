@@ -400,7 +400,7 @@ def add_project_question(project_id):
 @app.route('/api/projects/<int:project_id>/questions/bulk', methods=['POST'])
 def add_bulk_questions(project_id):
     """Add multiple questions from master bank to a project (admin only)
-    This replaces all existing questions with the new selection.
+    Smart update: preserves questions with responses, only deletes/adds as needed.
     Also supports custom_options for per-project option overrides.
     """
     auth_error = require_admin()
@@ -411,34 +411,58 @@ def add_bulk_questions(project_id):
     data = request.get_json()
     
     # Accept either 'question_ids' or 'master_question_ids'
-    question_ids = data.get('question_ids', data.get('master_question_ids', []))
+    new_question_ids = set(data.get('question_ids', data.get('master_question_ids', [])))
     custom_options = data.get('custom_options', {})  # {question_id: {customOptions: [...]}}
     
-    # Clear existing project questions
-    ProjectQuestion.query.filter_by(project_id=project_id).delete()
+    # Get existing project questions
+    existing_pqs = ProjectQuestion.query.filter_by(project_id=project_id).all()
+    existing_by_mq = {pq.master_question_id: pq for pq in existing_pqs}
+    existing_ids = set(existing_by_mq.keys())
     
-    # Add new questions
-    added = []
-    for i, mq_id in enumerate(question_ids):
-        # Get custom options for this question if any
+    # Determine what to add, update, and remove
+    to_add = new_question_ids - existing_ids
+    to_remove = existing_ids - new_question_ids
+    to_update = new_question_ids & existing_ids
+    
+    # Remove questions that are no longer selected (only if no responses reference them)
+    for mq_id in to_remove:
+        pq = existing_by_mq[mq_id]
+        # Check if any responses reference this project question
+        has_responses = ResponseAnswer.query.filter_by(project_question_id=pq.id).first() is not None
+        if not has_responses:
+            db.session.delete(pq)
+        # If has responses, we leave it but it won't be in the active survey
+    
+    # Update existing questions (custom options)
+    for mq_id in to_update:
+        pq = existing_by_mq[mq_id]
         q_custom = custom_options.get(str(mq_id), {})
         custom_opts = q_custom.get('customOptions', [])
-        
+        pq.custom_options_json = json.dumps(custom_opts) if custom_opts else None
+    
+    # Add new questions
+    # Get max order
+    max_order = max([pq.question_order for pq in existing_pqs], default=0)
+    for mq_id in to_add:
+        q_custom = custom_options.get(str(mq_id), {})
+        custom_opts = q_custom.get('customOptions', [])
+        max_order += 1
         pq = ProjectQuestion(
             project_id=project_id,
             master_question_id=mq_id,
-            question_order=i + 1,
+            question_order=max_order,
             is_breakout=False,
             custom_options_json=json.dumps(custom_opts) if custom_opts else None
         )
         db.session.add(pq)
-        added.append(mq_id)
     
     db.session.commit()
     
     return jsonify({
-        'added': added,
-        'count': len(added)
+        'added': list(to_add),
+        'updated': list(to_update),
+        'removed': list(to_remove),
+        'total': len(new_question_ids)
     }), 201
 
 
