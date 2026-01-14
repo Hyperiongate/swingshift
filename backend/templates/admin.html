@@ -1,24 +1,18 @@
 <!DOCTYPE html>
 <!--
-SwingShift Survey System - Admin Panel
-======================================
+SwingShift Survey System - Admin Panel v2
+=========================================
 Last Updated: January 14, 2026
 
-A professional admin interface for managing shiftwork surveys.
-Built with React and Tailwind CSS, served directly from Flask.
-
-FEATURES:
-- Dashboard with project overview
-- Project creation and management
-- Survey builder with question selection
-- Results viewer with export options
-- Survey link generator for employees
+Enhanced admin interface with:
+- Question customization (required for Dept, Job Title, Crew)
+- Custom question creation (all types including open-ended)
+- Full survey builder workflow
 
 NOTES FOR FUTURE AI:
-- This is a single-file React app using CDN imports (no build step)
-- API calls use the ADMIN_API_KEY from localStorage
-- All state management is local React state
-- Tailwind CSS for styling via CDN
+- Questions 1, 2, 3 REQUIRE customization (department, job title, crew)
+- Custom questions support: multiple_choice, likert_5, yes_no, multi_select, open_text
+- Per-project option overrides stored via API
 -->
 <html lang="en">
 <head>
@@ -42,6 +36,9 @@ NOTES FOR FUTURE AI:
 
     <script type="text/babel">
         const { useState, useEffect, useCallback } = React;
+
+        // Questions that REQUIRE customization (site-specific)
+        const REQUIRED_CUSTOM_QUESTIONS = [1, 2, 3]; // Department, Job Title, Crew
 
         // API Configuration
         const API_BASE = '/api';
@@ -78,10 +75,8 @@ NOTES FOR FUTURE AI:
         };
 
         // ============================================================================
-        // COMPONENTS
+        // LOGIN SCREEN
         // ============================================================================
-
-        // Login Screen
         function LoginScreen({ onLogin }) {
             const [apiKey, setApiKey] = useState('');
             const [error, setError] = useState('');
@@ -91,9 +86,7 @@ NOTES FOR FUTURE AI:
                 e.preventDefault();
                 setLoading(true);
                 setError('');
-                
                 api.setKey(apiKey);
-                
                 try {
                     await api.get('/setup/status');
                     onLogin();
@@ -101,7 +94,6 @@ NOTES FOR FUTURE AI:
                     setError('Invalid API key. Please check and try again.');
                     api.setKey('');
                 }
-                
                 setLoading(false);
             };
 
@@ -115,12 +107,9 @@ NOTES FOR FUTURE AI:
                             <h1 className="text-2xl font-bold text-gray-800">SwingShift Admin</h1>
                             <p className="text-gray-500 mt-2">Survey Management System</p>
                         </div>
-                        
                         <form onSubmit={handleSubmit}>
                             <div className="mb-6">
-                                <label className="block text-sm font-medium text-gray-700 mb-2">
-                                    Admin API Key
-                                </label>
+                                <label className="block text-sm font-medium text-gray-700 mb-2">Admin API Key</label>
                                 <input
                                     type="password"
                                     value={apiKey}
@@ -130,35 +119,24 @@ NOTES FOR FUTURE AI:
                                     required
                                 />
                             </div>
-                            
                             {error && (
                                 <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
                                     <i className="fas fa-exclamation-circle mr-2"></i>{error}
                                 </div>
                             )}
-                            
-                            <button
-                                type="submit"
-                                disabled={loading}
-                                className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50"
-                            >
-                                {loading ? (
-                                    <><i className="fas fa-spinner fa-spin mr-2"></i>Verifying...</>
-                                ) : (
-                                    <><i className="fas fa-sign-in-alt mr-2"></i>Sign In</>
-                                )}
+                            <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 transition disabled:opacity-50">
+                                {loading ? <><i className="fas fa-spinner fa-spin mr-2"></i>Verifying...</> : <><i className="fas fa-sign-in-alt mr-2"></i>Sign In</>}
                             </button>
                         </form>
-                        
-                        <p className="text-center text-gray-400 text-sm mt-6">
-                            Powered by Shiftwork Solutions LLC
-                        </p>
+                        <p className="text-center text-gray-400 text-sm mt-6">Powered by Shiftwork Solutions LLC</p>
                     </div>
                 </div>
             );
         }
 
-        // Navigation Sidebar
+        // ============================================================================
+        // SIDEBAR
+        // ============================================================================
         function Sidebar({ currentView, setCurrentView, onLogout }) {
             const navItems = [
                 { id: 'dashboard', icon: 'fas fa-home', label: 'Dashboard' },
@@ -180,16 +158,13 @@ NOTES FOR FUTURE AI:
                             </div>
                         </div>
                     </div>
-                    
                     <nav className="p-4">
                         {navItems.map(item => (
                             <button
                                 key={item.id}
                                 onClick={() => setCurrentView(item.id)}
                                 className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg mb-2 transition ${
-                                    currentView === item.id
-                                        ? 'bg-blue-600 text-white'
-                                        : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+                                    currentView === item.id ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
                                 }`}
                             >
                                 <i className={item.icon}></i>
@@ -197,12 +172,8 @@ NOTES FOR FUTURE AI:
                             </button>
                         ))}
                     </nav>
-                    
                     <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-gray-800">
-                        <button
-                            onClick={onLogout}
-                            className="w-full flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition"
-                        >
+                        <button onClick={onLogout} className="w-full flex items-center space-x-3 px-4 py-3 text-gray-400 hover:bg-gray-800 hover:text-white rounded-lg transition">
                             <i className="fas fa-sign-out-alt"></i>
                             <span>Logout</span>
                         </button>
@@ -211,14 +182,14 @@ NOTES FOR FUTURE AI:
             );
         }
 
-        // Dashboard View
+        // ============================================================================
+        // DASHBOARD
+        // ============================================================================
         function Dashboard({ setCurrentView }) {
             const [stats, setStats] = useState(null);
             const [loading, setLoading] = useState(true);
 
-            useEffect(() => {
-                loadStats();
-            }, []);
+            useEffect(() => { loadStats(); }, []);
 
             const loadStats = async () => {
                 try {
@@ -230,19 +201,11 @@ NOTES FOR FUTURE AI:
                         activeProjects: projects.filter(p => p.status === 'active').length || 0,
                         totalResponses: status.total_responses || 0
                     });
-                } catch (err) {
-                    console.error('Failed to load stats:', err);
-                }
+                } catch (err) { console.error('Failed to load stats:', err); }
                 setLoading(false);
             };
 
-            if (loading) {
-                return (
-                    <div className="flex items-center justify-center h-64">
-                        <i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
-                    </div>
-                );
-            }
+            if (loading) return <div className="flex items-center justify-center h-64"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
 
             const statCards = [
                 { label: 'Master Questions', value: stats?.questions || 0, icon: 'fas fa-list-check', color: 'bg-blue-500' },
@@ -257,10 +220,9 @@ NOTES FOR FUTURE AI:
                         <h1 className="text-3xl font-bold text-gray-800">Dashboard</h1>
                         <p className="text-gray-500 mt-1">Welcome to SwingShift Survey Management</p>
                     </div>
-
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                         {statCards.map((card, idx) => (
-                            <div key={idx} className="bg-white rounded-xl shadow-sm p-6 slide-in" style={{animationDelay: `${idx * 0.1}s`}}>
+                            <div key={idx} className="bg-white rounded-xl shadow-sm p-6 slide-in">
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <p className="text-gray-500 text-sm">{card.label}</p>
@@ -273,64 +235,38 @@ NOTES FOR FUTURE AI:
                             </div>
                         ))}
                     </div>
-
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div className="bg-white rounded-xl shadow-sm p-6">
                             <h2 className="text-xl font-bold text-gray-800 mb-4">Quick Actions</h2>
                             <div className="space-y-3">
-                                <button
-                                    onClick={() => setCurrentView('projects')}
-                                    className="w-full flex items-center justify-between p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition"
-                                >
-                                    <span className="flex items-center">
-                                        <i className="fas fa-plus-circle text-blue-600 mr-3"></i>
-                                        <span className="font-medium text-gray-700">Create New Project</span>
-                                    </span>
+                                <button onClick={() => setCurrentView('projects')} className="w-full flex items-center justify-between p-4 bg-blue-50 hover:bg-blue-100 rounded-lg transition">
+                                    <span className="flex items-center"><i className="fas fa-plus-circle text-blue-600 mr-3"></i><span className="font-medium text-gray-700">Create New Project</span></span>
                                     <i className="fas fa-chevron-right text-gray-400"></i>
                                 </button>
-                                <button
-                                    onClick={() => setCurrentView('questions')}
-                                    className="w-full flex items-center justify-between p-4 bg-green-50 hover:bg-green-100 rounded-lg transition"
-                                >
-                                    <span className="flex items-center">
-                                        <i className="fas fa-list text-green-600 mr-3"></i>
-                                        <span className="font-medium text-gray-700">View Question Bank</span>
-                                    </span>
+                                <button onClick={() => setCurrentView('questions')} className="w-full flex items-center justify-between p-4 bg-green-50 hover:bg-green-100 rounded-lg transition">
+                                    <span className="flex items-center"><i className="fas fa-list text-green-600 mr-3"></i><span className="font-medium text-gray-700">View Question Bank</span></span>
                                     <i className="fas fa-chevron-right text-gray-400"></i>
                                 </button>
-                                <button
-                                    onClick={() => setCurrentView('results')}
-                                    className="w-full flex items-center justify-between p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition"
-                                >
-                                    <span className="flex items-center">
-                                        <i className="fas fa-chart-pie text-purple-600 mr-3"></i>
-                                        <span className="font-medium text-gray-700">View Survey Results</span>
-                                    </span>
+                                <button onClick={() => setCurrentView('results')} className="w-full flex items-center justify-between p-4 bg-purple-50 hover:bg-purple-100 rounded-lg transition">
+                                    <span className="flex items-center"><i className="fas fa-chart-pie text-purple-600 mr-3"></i><span className="font-medium text-gray-700">View Survey Results</span></span>
                                     <i className="fas fa-chevron-right text-gray-400"></i>
                                 </button>
                             </div>
                         </div>
-
                         <div className="bg-white rounded-xl shadow-sm p-6">
                             <h2 className="text-xl font-bold text-gray-800 mb-4">System Status</h2>
                             <div className="space-y-4">
                                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                                     <span className="text-gray-600">Database</span>
-                                    <span className="flex items-center text-green-600">
-                                        <i className="fas fa-check-circle mr-2"></i>Connected
-                                    </span>
+                                    <span className="flex items-center text-green-600"><i className="fas fa-check-circle mr-2"></i>Connected</span>
                                 </div>
                                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                                     <span className="text-gray-600">Question Bank</span>
-                                    <span className="flex items-center text-green-600">
-                                        <i className="fas fa-check-circle mr-2"></i>{stats?.questions} Questions
-                                    </span>
+                                    <span className="flex items-center text-green-600"><i className="fas fa-check-circle mr-2"></i>{stats?.questions} Questions</span>
                                 </div>
                                 <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                                     <span className="text-gray-600">API Status</span>
-                                    <span className="flex items-center text-green-600">
-                                        <i className="fas fa-check-circle mr-2"></i>Operational
-                                    </span>
+                                    <span className="flex items-center text-green-600"><i className="fas fa-check-circle mr-2"></i>Operational</span>
                                 </div>
                             </div>
                         </div>
@@ -339,7 +275,9 @@ NOTES FOR FUTURE AI:
             );
         }
 
-        // Projects View
+        // ============================================================================
+        // PROJECTS VIEW
+        // ============================================================================
         function Projects() {
             const [projects, setProjects] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -347,18 +285,14 @@ NOTES FOR FUTURE AI:
             const [selectedProject, setSelectedProject] = useState(null);
             const [showBuilderModal, setShowBuilderModal] = useState(false);
 
-            useEffect(() => {
-                loadProjects();
-            }, []);
+            useEffect(() => { loadProjects(); }, []);
 
             const loadProjects = async () => {
                 setLoading(true);
                 try {
                     const data = await api.get('/projects');
                     setProjects(data);
-                } catch (err) {
-                    console.error('Failed to load projects:', err);
-                }
+                } catch (err) { console.error('Failed to load projects:', err); }
                 setLoading(false);
             };
 
@@ -367,18 +301,14 @@ NOTES FOR FUTURE AI:
                     await api.post('/projects', projectData);
                     setShowCreateModal(false);
                     loadProjects();
-                } catch (err) {
-                    alert('Failed to create project: ' + err.message);
-                }
+                } catch (err) { alert('Failed to create project: ' + err.message); }
             };
 
             const handleStatusChange = async (project, newStatus) => {
                 try {
                     await api.put(`/projects/${project.id}`, { status: newStatus });
                     loadProjects();
-                } catch (err) {
-                    alert('Failed to update status: ' + err.message);
-                }
+                } catch (err) { alert('Failed to update status: ' + err.message); }
             };
 
             const openSurveyBuilder = (project) => {
@@ -387,25 +317,11 @@ NOTES FOR FUTURE AI:
             };
 
             const getStatusBadge = (status) => {
-                const styles = {
-                    draft: 'bg-gray-100 text-gray-600',
-                    active: 'bg-green-100 text-green-600',
-                    closed: 'bg-red-100 text-red-600'
-                };
-                return (
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${styles[status] || styles.draft}`}>
-                        {status.charAt(0).toUpperCase() + status.slice(1)}
-                    </span>
-                );
+                const styles = { draft: 'bg-gray-100 text-gray-600', active: 'bg-green-100 text-green-600', closed: 'bg-red-100 text-red-600' };
+                return <span className={`px-3 py-1 rounded-full text-sm font-medium ${styles[status] || styles.draft}`}>{status.charAt(0).toUpperCase() + status.slice(1)}</span>;
             };
 
-            if (loading) {
-                return (
-                    <div className="flex items-center justify-center h-64">
-                        <i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
-                    </div>
-                );
-            }
+            if (loading) return <div className="flex items-center justify-center h-64"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
 
             return (
                 <div className="fade-in">
@@ -414,12 +330,8 @@ NOTES FOR FUTURE AI:
                             <h1 className="text-3xl font-bold text-gray-800">Projects</h1>
                             <p className="text-gray-500 mt-1">Manage your survey projects</p>
                         </div>
-                        <button
-                            onClick={() => setShowCreateModal(true)}
-                            className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition flex items-center"
-                        >
-                            <i className="fas fa-plus mr-2"></i>
-                            New Project
+                        <button onClick={() => setShowCreateModal(true)} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition flex items-center">
+                            <i className="fas fa-plus mr-2"></i>New Project
                         </button>
                     </div>
 
@@ -430,10 +342,7 @@ NOTES FOR FUTURE AI:
                             </div>
                             <h3 className="text-xl font-medium text-gray-800 mb-2">No projects yet</h3>
                             <p className="text-gray-500 mb-6">Create your first survey project to get started</p>
-                            <button
-                                onClick={() => setShowCreateModal(true)}
-                                className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition"
-                            >
+                            <button onClick={() => setShowCreateModal(true)} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition">
                                 <i className="fas fa-plus mr-2"></i>Create Project
                             </button>
                         </div>
@@ -463,40 +372,20 @@ NOTES FOR FUTURE AI:
                                             <td className="px-6 py-4 text-gray-600">{project.response_count || 0}</td>
                                             <td className="px-6 py-4">
                                                 <div className="flex items-center space-x-2">
-                                                    <button
-                                                        onClick={() => openSurveyBuilder(project)}
-                                                        className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition"
-                                                        title="Survey Builder"
-                                                    >
+                                                    <button onClick={() => openSurveyBuilder(project)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition" title="Survey Builder">
                                                         <i className="fas fa-edit"></i>
                                                     </button>
                                                     {project.status === 'draft' && (
-                                                        <button
-                                                            onClick={() => handleStatusChange(project, 'active')}
-                                                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition"
-                                                            title="Activate Survey"
-                                                        >
+                                                        <button onClick={() => handleStatusChange(project, 'active')} className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition" title="Activate Survey">
                                                             <i className="fas fa-play"></i>
                                                         </button>
                                                     )}
                                                     {project.status === 'active' && (
-                                                        <button
-                                                            onClick={() => handleStatusChange(project, 'closed')}
-                                                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition"
-                                                            title="Close Survey"
-                                                        >
+                                                        <button onClick={() => handleStatusChange(project, 'closed')} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition" title="Close Survey">
                                                             <i className="fas fa-stop"></i>
                                                         </button>
                                                     )}
-                                                    <button
-                                                        onClick={() => {
-                                                            const url = `${window.location.origin}/survey/${project.access_code}`;
-                                                            navigator.clipboard.writeText(url);
-                                                            alert('Survey link copied to clipboard!');
-                                                        }}
-                                                        className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition"
-                                                        title="Copy Survey Link"
-                                                    >
+                                                    <button onClick={() => { navigator.clipboard.writeText(`${window.location.origin}/survey/${project.access_code}`); alert('Survey link copied!'); }} className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition" title="Copy Survey Link">
                                                         <i className="fas fa-link"></i>
                                                     </button>
                                                 </div>
@@ -508,106 +397,45 @@ NOTES FOR FUTURE AI:
                         </div>
                     )}
 
-                    {showCreateModal && (
-                        <CreateProjectModal
-                            onClose={() => setShowCreateModal(false)}
-                            onCreate={handleCreateProject}
-                        />
-                    )}
-
-                    {showBuilderModal && selectedProject && (
-                        <SurveyBuilderModal
-                            project={selectedProject}
-                            onClose={() => {
-                                setShowBuilderModal(false);
-                                setSelectedProject(null);
-                                loadProjects();
-                            }}
-                        />
-                    )}
+                    {showCreateModal && <CreateProjectModal onClose={() => setShowCreateModal(false)} onCreate={handleCreateProject} />}
+                    {showBuilderModal && selectedProject && <SurveyBuilderModal project={selectedProject} onClose={() => { setShowBuilderModal(false); setSelectedProject(null); loadProjects(); }} />}
                 </div>
             );
         }
 
-        // Create Project Modal
+        // ============================================================================
+        // CREATE PROJECT MODAL
+        // ============================================================================
         function CreateProjectModal({ onClose, onCreate }) {
-            const [formData, setFormData] = useState({
-                project_name: '',
-                company_name: '',
-                contact_email: ''
-            });
+            const [formData, setFormData] = useState({ project_name: '', company_name: '', contact_email: '' });
 
-            const handleSubmit = (e) => {
-                e.preventDefault();
-                onCreate(formData);
-            };
+            const handleSubmit = (e) => { e.preventDefault(); onCreate(formData); };
 
             return (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                     <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 fade-in">
                         <div className="flex justify-between items-center mb-6">
                             <h2 className="text-xl font-bold text-gray-800">Create New Project</h2>
-                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-                                <i className="fas fa-times text-xl"></i>
-                            </button>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><i className="fas fa-times text-xl"></i></button>
                         </div>
-
                         <form onSubmit={handleSubmit}>
                             <div className="space-y-4">
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Project Name *
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={formData.project_name}
-                                        onChange={(e) => setFormData({...formData, project_name: e.target.value})}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        placeholder="e.g., 2026 Schedule Survey"
-                                        required
-                                    />
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Project Name *</label>
+                                    <input type="text" value={formData.project_name} onChange={(e) => setFormData({...formData, project_name: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="e.g., 2026 Schedule Survey" required />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Company Name *
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={formData.company_name}
-                                        onChange={(e) => setFormData({...formData, company_name: e.target.value})}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        placeholder="e.g., Acme Manufacturing"
-                                        required
-                                    />
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Company Name *</label>
+                                    <input type="text" value={formData.company_name} onChange={(e) => setFormData({...formData, company_name: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="e.g., Acme Manufacturing" required />
                                 </div>
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                                        Contact Email
-                                    </label>
-                                    <input
-                                        type="email"
-                                        value={formData.contact_email}
-                                        onChange={(e) => setFormData({...formData, contact_email: e.target.value})}
-                                        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                        placeholder="e.g., hr@acme.com"
-                                    />
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Contact Email</label>
+                                    <input type="email" value={formData.contact_email} onChange={(e) => setFormData({...formData, contact_email: e.target.value})} className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="e.g., hr@acme.com" />
                                 </div>
                             </div>
-
                             <div className="flex justify-end space-x-3 mt-6">
-                                <button
-                                    type="button"
-                                    onClick={onClose}
-                                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    type="submit"
-                                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
-                                >
-                                    Create Project
-                                </button>
+                                <button type="button" onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">Cancel</button>
+                                <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">Create Project</button>
                             </div>
                         </form>
                     </div>
@@ -615,263 +443,536 @@ NOTES FOR FUTURE AI:
             );
         }
 
-        // Survey Builder Modal
-        function SurveyBuilderModal({ project, onClose }) {
-            const [questions, setQuestions] = useState([]);
-            const [projectQuestions, setProjectQuestions] = useState([]);
-            const [selectedCategory, setSelectedCategory] = useState('all');
-            const [loading, setLoading] = useState(true);
-            const [saving, setSaving] = useState(false);
+        // ============================================================================
+        // CUSTOMIZE OPTIONS MODAL
+        // ============================================================================
+        function CustomizeOptionsModal({ question, currentOptions, onSave, onClose }) {
+            const [options, setOptions] = useState(currentOptions || []);
+            const [newOption, setNewOption] = useState('');
 
-            const categories = [
-                'all',
-                'Demographics',
-                'Health and Alertness',
-                'Working Conditions',
-                'Shift Schedule Features',
-                'Overtime',
-                'Day Care/Elder Care'
-            ];
-
-            useEffect(() => {
-                loadData();
-            }, []);
-
-            const loadData = async () => {
-                try {
-                    const [allQuestions, projQuestions] = await Promise.all([
-                        api.get('/questions'),
-                        api.get(`/projects/${project.id}/questions`)
-                    ]);
-                    setQuestions(allQuestions);
-                    setProjectQuestions(projQuestions.map(q => q.question_id));
-                } catch (err) {
-                    console.error('Failed to load questions:', err);
-                }
-                setLoading(false);
-            };
-
-            const toggleQuestion = (questionId) => {
-                setProjectQuestions(prev => {
-                    if (prev.includes(questionId)) {
-                        return prev.filter(id => id !== questionId);
-                    } else {
-                        return [...prev, questionId];
-                    }
-                });
-            };
-
-            const selectAll = () => {
-                const filtered = selectedCategory === 'all' 
-                    ? questions 
-                    : questions.filter(q => q.category === selectedCategory);
-                setProjectQuestions(prev => {
-                    const newIds = filtered.map(q => q.id);
-                    return [...new Set([...prev, ...newIds])];
-                });
-            };
-
-            const deselectAll = () => {
-                if (selectedCategory === 'all') {
-                    setProjectQuestions([]);
-                } else {
-                    const categoryIds = questions.filter(q => q.category === selectedCategory).map(q => q.id);
-                    setProjectQuestions(prev => prev.filter(id => !categoryIds.includes(id)));
+            const addOption = () => {
+                if (newOption.trim()) {
+                    const code = String.fromCharCode(97 + options.length); // a, b, c, etc.
+                    setOptions([...options, { text: newOption.trim(), code: code }]);
+                    setNewOption('');
                 }
             };
 
-            const saveQuestions = async () => {
-                setSaving(true);
-                try {
-                    await api.post(`/projects/${project.id}/questions/bulk`, {
-                        question_ids: projectQuestions
-                    });
-                    onClose();
-                } catch (err) {
-                    alert('Failed to save questions: ' + err.message);
-                }
-                setSaving(false);
+            const removeOption = (index) => {
+                setOptions(options.filter((_, i) => i !== index));
             };
 
-            const filteredQuestions = selectedCategory === 'all'
-                ? questions
-                : questions.filter(q => q.category === selectedCategory);
+            const handleSave = () => {
+                if (options.length < 2) {
+                    alert('Please add at least 2 options');
+                    return;
+                }
+                onSave(options);
+            };
 
-            if (loading) {
-                return (
-                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                        <div className="bg-white rounded-xl p-8">
-                            <i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
-                        </div>
-                    </div>
-                );
-            }
+            const isRequired = REQUIRED_CUSTOM_QUESTIONS.includes(question.question_number);
 
             return (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col fade-in">
-                        <div className="p-6 border-b flex justify-between items-center">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 fade-in max-h-[80vh] flex flex-col">
+                        <div className="flex justify-between items-center mb-4">
                             <div>
-                                <h2 className="text-xl font-bold text-gray-800">Survey Builder</h2>
-                                <p className="text-gray-500 text-sm">{project.project_name} - {project.company_name}</p>
+                                <h2 className="text-xl font-bold text-gray-800">Customize Options</h2>
+                                {isRequired && <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded">Required for this question</span>}
                             </div>
-                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-                                <i className="fas fa-times text-xl"></i>
-                            </button>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><i className="fas fa-times text-xl"></i></button>
                         </div>
 
-                        <div className="p-4 border-b bg-gray-50">
-                            <div className="flex flex-wrap gap-2">
-                                {categories.map(cat => (
-                                    <button
-                                        key={cat}
-                                        onClick={() => setSelectedCategory(cat)}
-                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                                            selectedCategory === cat
-                                                ? 'bg-blue-600 text-white'
-                                                : 'bg-white text-gray-600 hover:bg-gray-100'
-                                        }`}
-                                    >
-                                        {cat === 'all' ? 'All Categories' : cat}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="flex items-center justify-between mt-4">
-                                <span className="text-sm text-gray-500">
-                                    {projectQuestions.length} questions selected
-                                </span>
-                                <div className="space-x-2">
-                                    <button
-                                        onClick={selectAll}
-                                        className="px-3 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded transition"
-                                    >
-                                        Select All
-                                    </button>
-                                    <button
-                                        onClick={deselectAll}
-                                        className="px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded transition"
-                                    >
-                                        Deselect All
-                                    </button>
-                                </div>
-                            </div>
+                        <div className="bg-blue-50 p-3 rounded-lg mb-4">
+                            <p className="text-sm text-gray-700"><strong>Q{question.question_number}:</strong> {question.question_text}</p>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto p-4">
-                            <div className="space-y-2">
-                                {filteredQuestions.map(q => (
-                                    <div
-                                        key={q.id}
-                                        onClick={() => toggleQuestion(q.id)}
-                                        className={`p-4 rounded-lg border-2 cursor-pointer transition ${
-                                            projectQuestions.includes(q.id)
-                                                ? 'border-blue-500 bg-blue-50'
-                                                : 'border-gray-200 hover:border-gray-300'
-                                        }`}
-                                    >
-                                        <div className="flex items-start">
-                                            <div className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 mt-0.5 ${
-                                                projectQuestions.includes(q.id)
-                                                    ? 'border-blue-500 bg-blue-500'
-                                                    : 'border-gray-300'
-                                            }`}>
-                                                {projectQuestions.includes(q.id) && (
-                                                    <i className="fas fa-check text-white text-xs"></i>
-                                                )}
-                                            </div>
-                                            <div className="flex-1">
-                                                <div className="flex items-center">
-                                                    <span className="text-sm font-medium text-gray-500 mr-2">Q{q.question_number}</span>
-                                                    <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{q.category}</span>
-                                                </div>
-                                                <p className="text-gray-800 mt-1">{q.question_text}</p>
-                                                <p className="text-xs text-gray-400 mt-1">{q.question_type}</p>
-                                            </div>
+                        <div className="flex-1 overflow-y-auto mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Response Options</label>
+                            {options.length === 0 ? (
+                                <p className="text-gray-400 text-sm italic mb-2">No options yet. Add options below.</p>
+                            ) : (
+                                <div className="space-y-2 mb-4">
+                                    {options.map((opt, idx) => (
+                                        <div key={idx} className="flex items-center bg-gray-50 p-2 rounded-lg">
+                                            <span className="w-8 h-8 bg-blue-100 text-blue-600 rounded flex items-center justify-center font-medium mr-3">{opt.code.toUpperCase()}</span>
+                                            <span className="flex-1 text-gray-700">{opt.text}</span>
+                                            <button onClick={() => removeOption(idx)} className="text-red-500 hover:text-red-700 p-1"><i className="fas fa-trash-alt"></i></button>
                                         </div>
-                                    </div>
-                                ))}
+                                    ))}
+                                </div>
+                            )}
+
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={newOption}
+                                    onChange={(e) => setNewOption(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addOption())}
+                                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    placeholder="Enter option text..."
+                                />
+                                <button onClick={addOption} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                                    <i className="fas fa-plus"></i>
+                                </button>
                             </div>
                         </div>
 
-                        <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
-                            <span className="text-sm text-gray-600">
-                                <i className="fas fa-check-circle text-green-500 mr-2"></i>
-                                {projectQuestions.length} of {questions.length} questions selected
-                            </span>
-                            <div className="space-x-3">
-                                <button
-                                    onClick={onClose}
-                                    className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={saveQuestions}
-                                    disabled={saving}
-                                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50"
-                                >
-                                    {saving ? (
-                                        <><i className="fas fa-spinner fa-spin mr-2"></i>Saving...</>
-                                    ) : (
-                                        <><i className="fas fa-save mr-2"></i>Save Selection</>
-                                    )}
-                                </button>
-                            </div>
+                        <div className="flex justify-end space-x-3 border-t pt-4">
+                            <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">Cancel</button>
+                            <button onClick={handleSave} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+                                <i className="fas fa-check mr-2"></i>Save Options
+                            </button>
                         </div>
                     </div>
                 </div>
             );
         }
 
-        // Questions View
+        // ============================================================================
+        // ADD CUSTOM QUESTION MODAL
+        // ============================================================================
+        function AddCustomQuestionModal({ projectId, onSave, onClose }) {
+            const [questionText, setQuestionText] = useState('');
+            const [questionType, setQuestionType] = useState('multiple_choice');
+            const [options, setOptions] = useState([]);
+            const [newOption, setNewOption] = useState('');
+            const [saving, setSaving] = useState(false);
+
+            const questionTypes = [
+                { value: 'multiple_choice', label: 'Multiple Choice', needsOptions: true },
+                { value: 'likert_5', label: 'Likert Scale (1-5)', needsOptions: false },
+                { value: 'yes_no', label: 'Yes / No', needsOptions: false },
+                { value: 'multi_select', label: 'Multi-Select (check all that apply)', needsOptions: true },
+                { value: 'open_text', label: 'Open-Ended Text', needsOptions: false },
+            ];
+
+            const needsOptions = questionTypes.find(t => t.value === questionType)?.needsOptions;
+
+            const addOption = () => {
+                if (newOption.trim()) {
+                    const code = String.fromCharCode(97 + options.length);
+                    setOptions([...options, { text: newOption.trim(), code: code }]);
+                    setNewOption('');
+                }
+            };
+
+            const removeOption = (index) => {
+                setOptions(options.filter((_, i) => i !== index));
+            };
+
+            const handleSave = async () => {
+                if (!questionText.trim()) {
+                    alert('Please enter a question');
+                    return;
+                }
+                if (needsOptions && options.length < 2) {
+                    alert('Please add at least 2 options');
+                    return;
+                }
+
+                setSaving(true);
+                try {
+                    await api.post(`/projects/${projectId}/custom-questions`, {
+                        question_text: questionText,
+                        question_type: questionType,
+                        options: needsOptions ? options : []
+                    });
+                    onSave();
+                } catch (err) {
+                    alert('Failed to save question: ' + err.message);
+                }
+                setSaving(false);
+            };
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 fade-in max-h-[85vh] flex flex-col">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold text-gray-800">Add Custom Question</h2>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><i className="fas fa-times text-xl"></i></button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Question Text *</label>
+                                <textarea
+                                    value={questionText}
+                                    onChange={(e) => setQuestionText(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                    rows={3}
+                                    placeholder="Enter your question..."
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Question Type *</label>
+                                <select
+                                    value={questionType}
+                                    onChange={(e) => { setQuestionType(e.target.value); setOptions([]); }}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                >
+                                    {questionTypes.map(t => (
+                                        <option key={t.value} value={t.value}>{t.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {needsOptions && (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">Response Options *</label>
+                                    {options.length > 0 && (
+                                        <div className="space-y-2 mb-3">
+                                            {options.map((opt, idx) => (
+                                                <div key={idx} className="flex items-center bg-gray-50 p-2 rounded-lg">
+                                                    <span className="w-8 h-8 bg-blue-100 text-blue-600 rounded flex items-center justify-center font-medium mr-3">{opt.code.toUpperCase()}</span>
+                                                    <span className="flex-1 text-gray-700">{opt.text}</span>
+                                                    <button onClick={() => removeOption(idx)} className="text-red-500 hover:text-red-700 p-1"><i className="fas fa-trash-alt"></i></button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={newOption}
+                                            onChange={(e) => setNewOption(e.target.value)}
+                                            onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), addOption())}
+                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                                            placeholder="Enter option text..."
+                                        />
+                                        <button onClick={addOption} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition">
+                                            <i className="fas fa-plus"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {questionType === 'likert_5' && (
+                                <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600">
+                                    <i className="fas fa-info-circle mr-2"></i>
+                                    Likert scale will show: 1 (Strongly Disagree) to 5 (Strongly Agree)
+                                </div>
+                            )}
+
+                            {questionType === 'yes_no' && (
+                                <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600">
+                                    <i className="fas fa-info-circle mr-2"></i>
+                                    Options will be: Yes / No
+                                </div>
+                            )}
+
+                            {questionType === 'open_text' && (
+                                <div className="bg-gray-50 p-3 rounded-lg text-sm text-gray-600">
+                                    <i className="fas fa-info-circle mr-2"></i>
+                                    Employees will enter free-form text response
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex justify-end space-x-3 border-t pt-4 mt-4">
+                            <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition">Cancel</button>
+                            <button onClick={handleSave} disabled={saving} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50">
+                                {saving ? <><i className="fas fa-spinner fa-spin mr-2"></i>Saving...</> : <><i className="fas fa-plus mr-2"></i>Add Question</>}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ============================================================================
+        // SURVEY BUILDER MODAL (Enhanced)
+        // ============================================================================
+        function SurveyBuilderModal({ project, onClose }) {
+            const [questions, setQuestions] = useState([]);
+            const [customQuestions, setCustomQuestions] = useState([]);
+            const [selectedQuestions, setSelectedQuestions] = useState({});  // {questionId: {selected: bool, customOptions: []}}
+            const [selectedCategory, setSelectedCategory] = useState('all');
+            const [loading, setLoading] = useState(true);
+            const [saving, setSaving] = useState(false);
+            const [customizeQuestion, setCustomizeQuestion] = useState(null);
+            const [showAddCustom, setShowAddCustom] = useState(false);
+
+            const categories = ['all', 'Demographics', 'Health and Alertness', 'Working Conditions', 'Shift Schedule Features', 'Overtime', 'Day Care/Elder Care', 'Custom'];
+
+            useEffect(() => { loadData(); }, []);
+
+            const loadData = async () => {
+                try {
+                    const [allQuestions, projQuestions, projCustomQuestions] = await Promise.all([
+                        api.get('/questions'),
+                        api.get(`/projects/${project.id}/questions`),
+                        api.get(`/projects/${project.id}/custom-questions`).catch(() => [])
+                    ]);
+                    setQuestions(allQuestions);
+                    setCustomQuestions(projCustomQuestions || []);
+
+                    // Build selected state from existing project questions
+                    const selected = {};
+                    projQuestions.forEach(pq => {
+                        selected[pq.question_id] = { selected: true, customOptions: pq.custom_options || [] };
+                    });
+                    setSelectedQuestions(selected);
+                } catch (err) { console.error('Failed to load questions:', err); }
+                setLoading(false);
+            };
+
+            const toggleQuestion = (question) => {
+                const qId = question.id;
+                const isCurrentlySelected = selectedQuestions[qId]?.selected;
+                
+                if (!isCurrentlySelected && REQUIRED_CUSTOM_QUESTIONS.includes(question.question_number)) {
+                    // Require customization for these questions
+                    setCustomizeQuestion(question);
+                    return;
+                }
+
+                setSelectedQuestions(prev => ({
+                    ...prev,
+                    [qId]: { ...prev[qId], selected: !isCurrentlySelected, customOptions: prev[qId]?.customOptions || [] }
+                }));
+            };
+
+            const handleCustomize = (question) => {
+                setCustomizeQuestion(question);
+            };
+
+            const handleSaveCustomOptions = (options) => {
+                const qId = customizeQuestion.id;
+                setSelectedQuestions(prev => ({
+                    ...prev,
+                    [qId]: { selected: true, customOptions: options }
+                }));
+                setCustomizeQuestion(null);
+            };
+
+            const saveQuestions = async () => {
+                // Check for required customizations
+                const selectedIds = Object.keys(selectedQuestions).filter(id => selectedQuestions[id]?.selected);
+                for (const qId of selectedIds) {
+                    const q = questions.find(q => q.id === parseInt(qId));
+                    if (q && REQUIRED_CUSTOM_QUESTIONS.includes(q.question_number)) {
+                        const customOpts = selectedQuestions[qId]?.customOptions || [];
+                        if (customOpts.length < 2) {
+                            alert(`Please customize the options for: "${q.question_text}"`);
+                            setCustomizeQuestion(q);
+                            return;
+                        }
+                    }
+                }
+
+                setSaving(true);
+                try {
+                    await api.post(`/projects/${project.id}/questions/bulk`, {
+                        question_ids: selectedIds.map(id => parseInt(id)),
+                        custom_options: selectedQuestions
+                    });
+                    onClose();
+                } catch (err) { alert('Failed to save: ' + err.message); }
+                setSaving(false);
+            };
+
+            const handleCustomQuestionAdded = () => {
+                setShowAddCustom(false);
+                loadData();
+            };
+
+            const deleteCustomQuestion = async (cqId) => {
+                if (!confirm('Delete this custom question?')) return;
+                try {
+                    await api.delete(`/projects/${project.id}/custom-questions/${cqId}`);
+                    loadData();
+                } catch (err) { alert('Failed to delete: ' + err.message); }
+            };
+
+            const selectedCount = Object.values(selectedQuestions).filter(q => q?.selected).length + customQuestions.length;
+
+            const filteredQuestions = selectedCategory === 'all'
+                ? questions
+                : selectedCategory === 'Custom'
+                ? []
+                : questions.filter(q => q.category === selectedCategory);
+
+            if (loading) return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl p-8"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>
+                </div>
+            );
+
+            return (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col fade-in">
+                        <div className="p-6 border-b flex justify-between items-center">
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-800">Survey Builder</h2>
+                                <p className="text-gray-500 text-sm">{project.project_name} - {project.company_name}</p>
+                            </div>
+                            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><i className="fas fa-times text-xl"></i></button>
+                        </div>
+
+                        <div className="p-4 border-b bg-gray-50">
+                            <div className="flex flex-wrap gap-2 mb-3">
+                                {categories.map(cat => (
+                                    <button
+                                        key={cat}
+                                        onClick={() => setSelectedCategory(cat)}
+                                        className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
+                                            selectedCategory === cat ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100'
+                                        }`}
+                                    >
+                                        {cat === 'all' ? 'All Categories' : cat}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="flex items-center justify-between">
+                                <span className="text-sm text-gray-500">{selectedCount} questions in survey</span>
+                                <button onClick={() => setShowAddCustom(true)} className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition">
+                                    <i className="fas fa-plus mr-2"></i>Add Custom Question
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4">
+                            {/* Custom Questions Section */}
+                            {(selectedCategory === 'all' || selectedCategory === 'Custom') && customQuestions.length > 0 && (
+                                <div className="mb-6">
+                                    <h3 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
+                                        <i className="fas fa-star text-yellow-500 mr-2"></i>Custom Questions ({customQuestions.length})
+                                    </h3>
+                                    <div className="space-y-2">
+                                        {customQuestions.map(cq => (
+                                            <div key={`custom-${cq.id}`} className="p-4 rounded-lg border-2 border-green-500 bg-green-50">
+                                                <div className="flex items-start justify-between">
+                                                    <div className="flex-1">
+                                                        <div className="flex items-center">
+                                                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded mr-2">Custom</span>
+                                                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{cq.question_type}</span>
+                                                        </div>
+                                                        <p className="text-gray-800 mt-1">{cq.question_text}</p>
+                                                    </div>
+                                                    <button onClick={() => deleteCustomQuestion(cq.id)} className="text-red-500 hover:text-red-700 p-2">
+                                                        <i className="fas fa-trash-alt"></i>
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Master Questions */}
+                            {selectedCategory !== 'Custom' && (
+                                <div className="space-y-2">
+                                    {filteredQuestions.map(q => {
+                                        const isSelected = selectedQuestions[q.id]?.selected;
+                                        const hasCustomOptions = (selectedQuestions[q.id]?.customOptions || []).length > 0;
+                                        const requiresCustom = REQUIRED_CUSTOM_QUESTIONS.includes(q.question_number);
+
+                                        return (
+                                            <div
+                                                key={q.id}
+                                                className={`p-4 rounded-lg border-2 transition ${
+                                                    isSelected ? 'border-blue-500 bg-blue-50' : 'border-gray-200 hover:border-gray-300'
+                                                }`}
+                                            >
+                                                <div className="flex items-start">
+                                                    <div
+                                                        onClick={() => toggleQuestion(q)}
+                                                        className={`w-6 h-6 rounded border-2 flex items-center justify-center mr-3 mt-0.5 cursor-pointer ${
+                                                            isSelected ? 'border-blue-500 bg-blue-500' : 'border-gray-300'
+                                                        }`}
+                                                    >
+                                                        {isSelected && <i className="fas fa-check text-white text-xs"></i>}
+                                                    </div>
+                                                    <div className="flex-1" onClick={() => toggleQuestion(q)} style={{cursor: 'pointer'}}>
+                                                        <div className="flex items-center flex-wrap gap-1">
+                                                            <span className="text-sm font-medium text-gray-500 mr-2">Q{q.question_number}</span>
+                                                            <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{q.category}</span>
+                                                            {requiresCustom && <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded">Requires Customization</span>}
+                                                            {hasCustomOptions && <span className="text-xs bg-green-100 text-green-600 px-2 py-0.5 rounded"><i className="fas fa-check mr-1"></i>Customized</span>}
+                                                        </div>
+                                                        <p className="text-gray-800 mt-1">{q.question_text}</p>
+                                                        <p className="text-xs text-gray-400 mt-1">{q.question_type}</p>
+                                                    </div>
+                                                    {isSelected && (
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); handleCustomize(q); }}
+                                                            className="ml-2 px-3 py-1 text-sm text-blue-600 hover:bg-blue-100 rounded transition"
+                                                        >
+                                                            <i className="fas fa-cog mr-1"></i>Customize
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-4 border-t bg-gray-50 flex justify-between items-center">
+                            <span className="text-sm text-gray-600">
+                                <i className="fas fa-check-circle text-green-500 mr-2"></i>
+                                {selectedCount} questions in survey
+                            </span>
+                            <div className="space-x-3">
+                                <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition">Cancel</button>
+                                <button onClick={saveQuestions} disabled={saving} className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50">
+                                    {saving ? <><i className="fas fa-spinner fa-spin mr-2"></i>Saving...</> : <><i className="fas fa-save mr-2"></i>Save Survey</>}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {customizeQuestion && (
+                        <CustomizeOptionsModal
+                            question={customizeQuestion}
+                            currentOptions={selectedQuestions[customizeQuestion.id]?.customOptions || []}
+                            onSave={handleSaveCustomOptions}
+                            onClose={() => setCustomizeQuestion(null)}
+                        />
+                    )}
+
+                    {showAddCustom && (
+                        <AddCustomQuestionModal
+                            projectId={project.id}
+                            onSave={handleCustomQuestionAdded}
+                            onClose={() => setShowAddCustom(false)}
+                        />
+                    )}
+                </div>
+            );
+        }
+
+        // ============================================================================
+        // QUESTIONS VIEW
+        // ============================================================================
         function Questions() {
             const [questions, setQuestions] = useState([]);
             const [loading, setLoading] = useState(true);
             const [selectedCategory, setSelectedCategory] = useState('all');
             const [expandedQuestion, setExpandedQuestion] = useState(null);
 
-            const categories = [
-                'all',
-                'Demographics',
-                'Health and Alertness',
-                'Working Conditions',
-                'Shift Schedule Features',
-                'Overtime',
-                'Day Care/Elder Care'
-            ];
+            const categories = ['all', 'Demographics', 'Health and Alertness', 'Working Conditions', 'Shift Schedule Features', 'Overtime', 'Day Care/Elder Care'];
 
-            useEffect(() => {
-                loadQuestions();
-            }, []);
+            useEffect(() => { loadQuestions(); }, []);
 
             const loadQuestions = async () => {
                 try {
                     const data = await api.get('/questions');
                     setQuestions(data);
-                } catch (err) {
-                    console.error('Failed to load questions:', err);
-                }
+                } catch (err) { console.error('Failed to load questions:', err); }
                 setLoading(false);
             };
 
-            const filteredQuestions = selectedCategory === 'all'
-                ? questions
-                : questions.filter(q => q.category === selectedCategory);
-
+            const filteredQuestions = selectedCategory === 'all' ? questions : questions.filter(q => q.category === selectedCategory);
             const categoryCounts = categories.reduce((acc, cat) => {
-                acc[cat] = cat === 'all' 
-                    ? questions.length 
-                    : questions.filter(q => q.category === cat).length;
+                acc[cat] = cat === 'all' ? questions.length : questions.filter(q => q.category === cat).length;
                 return acc;
             }, {});
 
-            if (loading) {
-                return (
-                    <div className="flex items-center justify-center h-64">
-                        <i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
-                    </div>
-                );
-            }
+            if (loading) return <div className="flex items-center justify-center h-64"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
 
             return (
                 <div className="fade-in">
@@ -879,53 +980,44 @@ NOTES FOR FUTURE AI:
                         <h1 className="text-3xl font-bold text-gray-800">Question Bank</h1>
                         <p className="text-gray-500 mt-1">97 master questions developed over 30+ years</p>
                     </div>
-
                     <div className="flex flex-wrap gap-2 mb-6">
                         {categories.map(cat => (
                             <button
                                 key={cat}
                                 onClick={() => setSelectedCategory(cat)}
                                 className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                                    selectedCategory === cat
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-white text-gray-600 hover:bg-gray-100 shadow-sm'
+                                    selectedCategory === cat ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-100 shadow-sm'
                                 }`}
                             >
                                 {cat === 'all' ? 'All' : cat} ({categoryCounts[cat]})
                             </button>
                         ))}
                     </div>
-
                     <div className="bg-white rounded-xl shadow-sm">
                         <div className="divide-y">
                             {filteredQuestions.map(q => (
                                 <div key={q.id} className="p-4 hover:bg-gray-50">
-                                    <div 
-                                        className="flex items-start cursor-pointer"
-                                        onClick={() => setExpandedQuestion(expandedQuestion === q.id ? null : q.id)}
-                                    >
-                                        <span className="w-10 h-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-bold mr-4">
-                                            {q.question_number}
-                                        </span>
+                                    <div className="flex items-start cursor-pointer" onClick={() => setExpandedQuestion(expandedQuestion === q.id ? null : q.id)}>
+                                        <span className="w-10 h-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center font-bold mr-4">{q.question_number}</span>
                                         <div className="flex-1">
                                             <div className="flex items-center mb-1">
                                                 <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded mr-2">{q.category}</span>
                                                 <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded">{q.question_type}</span>
+                                                {REQUIRED_CUSTOM_QUESTIONS.includes(q.question_number) && (
+                                                    <span className="text-xs bg-red-100 text-red-600 px-2 py-0.5 rounded ml-2">Site-Specific</span>
+                                                )}
                                             </div>
                                             <p className="text-gray-800">{q.question_text}</p>
                                         </div>
                                         <i className={`fas fa-chevron-${expandedQuestion === q.id ? 'up' : 'down'} text-gray-400 ml-4`}></i>
                                     </div>
-                                    
                                     {expandedQuestion === q.id && q.options && (
                                         <div className="mt-4 ml-14 p-4 bg-gray-50 rounded-lg">
-                                            <p className="text-sm font-medium text-gray-600 mb-2">Response Options:</p>
+                                            <p className="text-sm font-medium text-gray-600 mb-2">Default Response Options:</p>
                                             <div className="space-y-1">
                                                 {q.options.map((opt, idx) => (
                                                     <div key={idx} className="flex items-center text-sm">
-                                                        <span className="w-6 h-6 bg-white border rounded flex items-center justify-center text-gray-500 mr-2">
-                                                            {opt.option_code}
-                                                        </span>
+                                                        <span className="w-6 h-6 bg-white border rounded flex items-center justify-center text-gray-500 mr-2">{opt.option_code}</span>
                                                         <span className="text-gray-700">{opt.option_text}</span>
                                                     </div>
                                                 ))}
@@ -940,7 +1032,9 @@ NOTES FOR FUTURE AI:
             );
         }
 
-        // Results View
+        // ============================================================================
+        // RESULTS VIEW
+        // ============================================================================
         function Results() {
             const [projects, setProjects] = useState([]);
             const [selectedProject, setSelectedProject] = useState(null);
@@ -948,9 +1042,7 @@ NOTES FOR FUTURE AI:
             const [loading, setLoading] = useState(true);
             const [loadingResults, setLoadingResults] = useState(false);
 
-            useEffect(() => {
-                loadProjects();
-            }, []);
+            useEffect(() => { loadProjects(); }, []);
 
             const loadProjects = async () => {
                 try {
@@ -960,9 +1052,7 @@ NOTES FOR FUTURE AI:
                         setSelectedProject(data[0]);
                         loadResults(data[0].id);
                     }
-                } catch (err) {
-                    console.error('Failed to load projects:', err);
-                }
+                } catch (err) { console.error('Failed to load projects:', err); }
                 setLoading(false);
             };
 
@@ -971,10 +1061,7 @@ NOTES FOR FUTURE AI:
                 try {
                     const data = await api.get(`/projects/${projectId}/results`);
                     setResults(data);
-                } catch (err) {
-                    console.error('Failed to load results:', err);
-                    setResults(null);
-                }
+                } catch (err) { console.error('Failed to load results:', err); setResults(null); }
                 setLoadingResults(false);
             };
 
@@ -983,22 +1070,7 @@ NOTES FOR FUTURE AI:
                 loadResults(project.id);
             };
 
-            const exportCSV = async () => {
-                if (!selectedProject) return;
-                try {
-                    window.open(`/api/projects/${selectedProject.id}/export/csv?api_key=${api.getKey()}`, '_blank');
-                } catch (err) {
-                    alert('Failed to export: ' + err.message);
-                }
-            };
-
-            if (loading) {
-                return (
-                    <div className="flex items-center justify-center h-64">
-                        <i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
-                    </div>
-                );
-            }
+            if (loading) return <div className="flex items-center justify-center h-64"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
 
             if (projects.length === 0) {
                 return (
@@ -1025,16 +1097,7 @@ NOTES FOR FUTURE AI:
                             <h1 className="text-3xl font-bold text-gray-800">Results</h1>
                             <p className="text-gray-500 mt-1">View and export survey results</p>
                         </div>
-                        <button
-                            onClick={exportCSV}
-                            disabled={!selectedProject || !results?.total_responses}
-                            className="bg-green-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-green-700 transition disabled:opacity-50 flex items-center"
-                        >
-                            <i className="fas fa-download mr-2"></i>
-                            Export CSV
-                        </button>
                     </div>
-
                     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
                         <div className="lg:col-span-1">
                             <div className="bg-white rounded-xl shadow-sm p-4">
@@ -1045,22 +1108,17 @@ NOTES FOR FUTURE AI:
                                             key={project.id}
                                             onClick={() => handleProjectChange(project)}
                                             className={`w-full text-left p-3 rounded-lg transition ${
-                                                selectedProject?.id === project.id
-                                                    ? 'bg-blue-50 border-2 border-blue-500'
-                                                    : 'bg-gray-50 hover:bg-gray-100'
+                                                selectedProject?.id === project.id ? 'bg-blue-50 border-2 border-blue-500' : 'bg-gray-50 hover:bg-gray-100'
                                             }`}
                                         >
                                             <div className="font-medium text-gray-800">{project.project_name}</div>
                                             <div className="text-sm text-gray-500">{project.company_name}</div>
-                                            <div className="text-xs text-gray-400 mt-1">
-                                                {project.response_count || 0} responses
-                                            </div>
+                                            <div className="text-xs text-gray-400 mt-1">{project.response_count || 0} responses</div>
                                         </button>
                                     ))}
                                 </div>
                             </div>
                         </div>
-
                         <div className="lg:col-span-3">
                             {loadingResults ? (
                                 <div className="bg-white rounded-xl shadow-sm p-12 text-center">
@@ -1071,19 +1129,18 @@ NOTES FOR FUTURE AI:
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                         <div className="bg-white rounded-xl shadow-sm p-6">
                                             <div className="text-sm text-gray-500">Total Responses</div>
-                                            <div className="text-3xl font-bold text-gray-800">{results.total_responses}</div>
+                                            <div className="text-3xl font-bold text-gray-800">{results.response_summary?.total || 0}</div>
                                         </div>
                                         <div className="bg-white rounded-xl shadow-sm p-6">
                                             <div className="text-sm text-gray-500">Completed</div>
-                                            <div className="text-3xl font-bold text-green-600">{results.completed_responses}</div>
+                                            <div className="text-3xl font-bold text-green-600">{results.response_summary?.complete || 0}</div>
                                         </div>
                                         <div className="bg-white rounded-xl shadow-sm p-6">
                                             <div className="text-sm text-gray-500">In Progress</div>
-                                            <div className="text-3xl font-bold text-yellow-600">{results.in_progress_responses}</div>
+                                            <div className="text-3xl font-bold text-yellow-600">{results.response_summary?.incomplete || 0}</div>
                                         </div>
                                     </div>
-
-                                    {results.total_responses === 0 ? (
+                                    {(results.response_summary?.total || 0) === 0 ? (
                                         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
                                             <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
                                                 <i className="fas fa-inbox text-gray-400 text-2xl"></i>
@@ -1092,18 +1149,13 @@ NOTES FOR FUTURE AI:
                                             <p className="text-gray-500 mb-4">Share the survey link to start collecting responses</p>
                                             <div className="bg-gray-50 p-4 rounded-lg">
                                                 <p className="text-sm text-gray-600 mb-2">Survey Link:</p>
-                                                <code className="text-blue-600 bg-blue-50 px-3 py-1 rounded">
-                                                    {window.location.origin}/survey/{selectedProject?.access_code}
-                                                </code>
+                                                <code className="text-blue-600 bg-blue-50 px-3 py-1 rounded">{window.location.origin}/survey/{selectedProject?.access_code}</code>
                                             </div>
                                         </div>
                                     ) : (
                                         <div className="bg-white rounded-xl shadow-sm p-6">
-                                            <h3 className="font-medium text-gray-800 mb-4">Response Distribution</h3>
-                                            <p className="text-gray-500 text-sm">
-                                                Detailed analytics and charts coming in Phase 4.
-                                                Export to CSV for full data analysis.
-                                            </p>
+                                            <h3 className="font-medium text-gray-800 mb-4">Response Summary</h3>
+                                            <p className="text-gray-500 text-sm">Detailed analytics and export features coming in Phase 4.</p>
                                         </div>
                                     )}
                                 </div>
@@ -1118,15 +1170,15 @@ NOTES FOR FUTURE AI:
             );
         }
 
-        // Main App Component
+        // ============================================================================
+        // MAIN APP
+        // ============================================================================
         function App() {
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [currentView, setCurrentView] = useState('dashboard');
             const [checking, setChecking] = useState(true);
 
-            useEffect(() => {
-                checkAuth();
-            }, []);
+            useEffect(() => { checkAuth(); }, []);
 
             const checkAuth = async () => {
                 const key = api.getKey();
@@ -1134,29 +1186,16 @@ NOTES FOR FUTURE AI:
                     try {
                         await api.get('/setup/status');
                         setIsLoggedIn(true);
-                    } catch {
-                        api.setKey('');
-                    }
+                    } catch { api.setKey(''); }
                 }
                 setChecking(false);
             };
 
-            const handleLogout = () => {
-                api.setKey('');
-                setIsLoggedIn(false);
-            };
+            const handleLogout = () => { api.setKey(''); setIsLoggedIn(false); };
 
-            if (checking) {
-                return (
-                    <div className="min-h-screen flex items-center justify-center bg-gray-100">
-                        <i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i>
-                    </div>
-                );
-            }
+            if (checking) return <div className="min-h-screen flex items-center justify-center bg-gray-100"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
 
-            if (!isLoggedIn) {
-                return <LoginScreen onLogin={() => setIsLoggedIn(true)} />;
-            }
+            if (!isLoggedIn) return <LoginScreen onLogin={() => setIsLoggedIn(true)} />;
 
             const renderView = () => {
                 switch (currentView) {
@@ -1170,19 +1209,12 @@ NOTES FOR FUTURE AI:
 
             return (
                 <div className="min-h-screen bg-gray-100">
-                    <Sidebar 
-                        currentView={currentView} 
-                        setCurrentView={setCurrentView}
-                        onLogout={handleLogout}
-                    />
-                    <div className="ml-64 p-8">
-                        {renderView()}
-                    </div>
+                    <Sidebar currentView={currentView} setCurrentView={setCurrentView} onLogout={handleLogout} />
+                    <div className="ml-64 p-8">{renderView()}</div>
                 </div>
             );
         }
 
-        // Render the app
         ReactDOM.createRoot(document.getElementById('root')).render(<App />);
     </script>
 </body>
