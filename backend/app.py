@@ -33,7 +33,7 @@ import json
 from models import (
     db, MasterQuestion, ResponseOption, Project, ProjectQuestion,
     CustomQuestion, CustomResponseOption, SurveyResponse, ResponseAnswer,
-    NormativeData
+    ScheduleVideo, ScheduleRating, NormativeData
 )
 
 # Create Flask app
@@ -99,6 +99,146 @@ def admin_panel():
     import os
     template_path = os.path.join(app.root_path, 'templates', 'admin.html')
     return send_file(template_path, mimetype='text/html')
+
+
+# ============================================================================
+# CLIENT PORTAL (Project-specific access for clients)
+# ============================================================================
+
+@app.route('/project/<access_code>')
+@app.route('/project/<access_code>/')
+def client_portal(access_code):
+    """Serve the client portal interface for project setup and results"""
+    import os
+    # Verify project exists
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return "Project not found", 404
+    template_path = os.path.join(app.root_path, 'templates', 'client_portal.html')
+    return send_file(template_path, mimetype='text/html')
+
+
+@app.route('/api/project/<access_code>', methods=['GET'])
+def get_project_by_code(access_code):
+    """Get project details by access code (for client portal)"""
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    return jsonify(project.to_dict())
+
+
+@app.route('/api/project/<access_code>/schedules', methods=['GET'])
+def get_project_schedules(access_code):
+    """Get all schedule videos for a project"""
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    schedules = ScheduleVideo.query.filter_by(project_id=project.id).order_by(ScheduleVideo.display_order).all()
+    return jsonify([s.to_dict() for s in schedules])
+
+
+@app.route('/api/project/<access_code>/schedules', methods=['POST'])
+def add_project_schedule(access_code):
+    """Add a schedule video to a project"""
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    # Check max 6 schedules
+    current_count = ScheduleVideo.query.filter_by(project_id=project.id).count()
+    if current_count >= 6:
+        return jsonify({'error': 'Maximum 6 schedules allowed'}), 400
+    
+    data = request.get_json()
+    
+    schedule = ScheduleVideo(
+        project_id=project.id,
+        schedule_name=data.get('schedule_name', 'Untitled Schedule'),
+        schedule_description=data.get('schedule_description'),
+        display_order=current_count + 1,
+        video_filename=data.get('video_filename', ''),
+        original_filename=data.get('original_filename'),
+        video_url=data.get('video_url')
+    )
+    db.session.add(schedule)
+    db.session.commit()
+    
+    return jsonify(schedule.to_dict()), 201
+
+
+@app.route('/api/project/<access_code>/schedules/<int:schedule_id>', methods=['PUT'])
+def update_project_schedule(access_code, schedule_id):
+    """Update a schedule video"""
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    schedule = ScheduleVideo.query.filter_by(id=schedule_id, project_id=project.id).first()
+    if not schedule:
+        return jsonify({'error': 'Schedule not found'}), 404
+    
+    data = request.get_json()
+    for field in ['schedule_name', 'schedule_description', 'display_order', 'video_filename', 'video_url']:
+        if field in data:
+            setattr(schedule, field, data[field])
+    
+    db.session.commit()
+    return jsonify(schedule.to_dict())
+
+
+@app.route('/api/project/<access_code>/schedules/<int:schedule_id>', methods=['DELETE'])
+def delete_project_schedule(access_code, schedule_id):
+    """Delete a schedule video"""
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    schedule = ScheduleVideo.query.filter_by(id=schedule_id, project_id=project.id).first()
+    if not schedule:
+        return jsonify({'error': 'Schedule not found'}), 404
+    
+    db.session.delete(schedule)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+
+@app.route('/api/project/<access_code>/results', methods=['GET'])
+def get_project_results_by_code(access_code):
+    """Get project results by access code (for client portal)"""
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    # Get response summary
+    total_responses = SurveyResponse.query.filter_by(project_id=project.id).count()
+    complete_responses = SurveyResponse.query.filter_by(project_id=project.id, is_complete=True).count()
+    
+    # Get schedule ratings summary
+    schedule_results = []
+    schedules = ScheduleVideo.query.filter_by(project_id=project.id).all()
+    for schedule in schedules:
+        ratings = ScheduleRating.query.filter_by(schedule_id=schedule.id).all()
+        if ratings:
+            avg_rating = sum(r.rating for r in ratings if r.rating) / len([r for r in ratings if r.rating]) if any(r.rating for r in ratings) else None
+            schedule_results.append({
+                'schedule_id': schedule.id,
+                'schedule_name': schedule.schedule_name,
+                'rating_count': len(ratings),
+                'average_rating': round(avg_rating, 2) if avg_rating else None,
+            })
+    
+    return jsonify({
+        'project': project.to_dict(),
+        'response_summary': {
+            'total': total_responses,
+            'complete': complete_responses,
+            'incomplete': total_responses - complete_responses
+        },
+        'schedule_results': schedule_results
+    })
 
 
 # ============================================================================
