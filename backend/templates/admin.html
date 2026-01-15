@@ -1,8 +1,11 @@
 <!DOCTYPE html>
 <!--
-SwingShift Survey System - Admin Panel v3
+SwingShift Survey System - Admin Panel v4
 Last Updated: January 14, 2026
-Workflow: Select questions -> Add custom -> Save -> Customize required at save time
+Changes:
+- Added Reopen button for closed projects
+- Added Preview Survey button
+- Workflow: Select -> Add custom -> Save -> Customize at save time
 -->
 <html lang="en">
 <head>
@@ -80,10 +83,15 @@ function Projects(){
     const[loading,setLoading]=useState(true);
     const[showCreate,setShowCreate]=useState(false);
     const[editProj,setEditProj]=useState(null);
+    const[previewProj,setPreviewProj]=useState(null);
     const load=async()=>{try{setProjects(await api.get('/projects'));}catch(e){console.error(e);}setLoading(false);};
     useEffect(()=>{load();},[]);
     const create=async d=>{try{await api.post('/projects',d);setShowCreate(false);load();}catch(e){alert(e.message);}};
-    const status=async(p,s)=>{try{await api.put(`/projects/${p.id}`,{status:s});load();}catch(e){alert(e.message);}};
+    const status=async(p,s)=>{
+        if(s==='active'&&!confirm('Activate this survey? Employees will be able to take it.'))return;
+        if(s==='closed'&&!confirm('Close this survey? No more responses will be accepted.'))return;
+        try{await api.put(`/projects/${p.id}`,{status:s});load();}catch(e){alert(e.message);}
+    };
     if(loading)return<div className="flex justify-center p-20"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
     return(<div className="fade-in">
         <div className="flex justify-between items-center mb-8"><h1 className="text-3xl font-bold">Projects</h1><button onClick={()=>setShowCreate(true)} className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"><i className="fas fa-plus mr-2"></i>New Project</button></div>
@@ -93,13 +101,18 @@ function Projects(){
             <td className="px-6 py-4"><div className="font-medium">{p.project_name}</div><div className="text-sm text-gray-500">{p.company_name} • {p.access_code}</div></td>
             <td className="px-6 py-4"><span className={`px-3 py-1 rounded-full text-sm ${p.status==='active'?'bg-green-100 text-green-600':p.status==='closed'?'bg-red-100 text-red-600':'bg-gray-100 text-gray-600'}`}>{p.status}</span></td>
             <td className="px-6 py-4">{p.question_count||0}</td><td className="px-6 py-4">{p.response_count||0}</td>
-            <td className="px-6 py-4"><button onClick={()=>setEditProj(p)} className="p-2 text-blue-600 hover:bg-blue-50 rounded" title="Edit"><i className="fas fa-edit"></i></button>
-            {p.status==='draft'&&<button onClick={()=>status(p,'active')} className="p-2 text-green-600 hover:bg-green-50 rounded"><i className="fas fa-play"></i></button>}
-            {p.status==='active'&&<button onClick={()=>status(p,'closed')} className="p-2 text-red-600 hover:bg-red-50 rounded"><i className="fas fa-stop"></i></button>}
-            <button onClick={()=>{navigator.clipboard.writeText(`${location.origin}/survey/${p.access_code}`);alert('Link copied!');}} className="p-2 text-purple-600 hover:bg-purple-50 rounded"><i className="fas fa-link"></i></button></td>
+            <td className="px-6 py-4 space-x-1">
+                <button onClick={()=>setEditProj(p)} className="p-2 text-blue-600 hover:bg-blue-50 rounded" title="Edit Survey"><i className="fas fa-edit"></i></button>
+                <button onClick={()=>setPreviewProj(p)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded" title="Preview Survey"><i className="fas fa-eye"></i></button>
+                {p.status==='draft'&&<button onClick={()=>status(p,'active')} className="p-2 text-green-600 hover:bg-green-50 rounded" title="Activate"><i className="fas fa-play"></i></button>}
+                {p.status==='active'&&<button onClick={()=>status(p,'closed')} className="p-2 text-red-600 hover:bg-red-50 rounded" title="Close"><i className="fas fa-stop"></i></button>}
+                {p.status==='closed'&&<button onClick={()=>status(p,'active')} className="p-2 text-green-600 hover:bg-green-50 rounded" title="Reopen"><i className="fas fa-redo"></i></button>}
+                <button onClick={()=>{navigator.clipboard.writeText(`${location.origin}/survey/${p.access_code}`);alert('Survey link copied!\n\n'+location.origin+'/survey/'+p.access_code);}} className="p-2 text-purple-600 hover:bg-purple-50 rounded" title="Copy Link"><i className="fas fa-link"></i></button>
+            </td>
         </tr>)}</tbody></table></div>}
         {showCreate&&<CreateModal onClose={()=>setShowCreate(false)} onCreate={create}/>}
         {editProj&&<SurveyBuilder project={editProj} onClose={()=>{setEditProj(null);load();}}/>}
+        {previewProj&&<PreviewModal project={previewProj} onClose={()=>setPreviewProj(null)}/>}
     </div>);
 }
 
@@ -111,6 +124,78 @@ function CreateModal({onClose,onCreate}){
         <input value={company} onChange={e=>setCompany(e.target.value)} placeholder="Company Name" className="w-full px-4 py-2 border rounded-lg mb-4"/>
         <div className="flex justify-end space-x-3"><button onClick={onClose} className="px-4 py-2 text-gray-600">Cancel</button><button onClick={()=>onCreate({project_name:name,company_name:company})} className="px-6 py-2 bg-blue-600 text-white rounded-lg">Create</button></div>
     </div></div>);
+}
+
+function PreviewModal({project,onClose}){
+    const[questions,setQuestions]=useState([]);
+    const[customQs,setCustomQs]=useState([]);
+    const[masterQs,setMasterQs]=useState({});
+    const[loading,setLoading]=useState(true);
+    
+    useEffect(()=>{
+        (async()=>{
+            try{
+                const[projQ,custQ,allQ]=await Promise.all([
+                    api.get(`/projects/${project.id}/questions`),
+                    api.get(`/projects/${project.id}/custom-questions`).catch(()=>[]),
+                    api.get('/questions')
+                ]);
+                const qMap={};allQ.forEach(q=>qMap[q.id]=q);
+                setMasterQs(qMap);
+                setQuestions(projQ);
+                setCustomQs(custQ||[]);
+            }catch(e){console.error(e);}
+            setLoading(false);
+        })();
+    },[project.id]);
+    
+    const getOptions=(pq)=>{
+        if(pq.custom_options&&pq.custom_options.length>0)return pq.custom_options.map((o,i)=>({code:String.fromCharCode(97+i).toUpperCase(),text:o.text}));
+        const mq=masterQs[pq.master_question_id];
+        if(mq&&mq.options)return mq.options.map(o=>({code:o.option_code,text:o.option_text}));
+        return[];
+    };
+    
+    if(loading)return<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"><div className="bg-white rounded-xl p-8"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div></div>;
+    
+    return(<div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b flex justify-between items-center bg-indigo-600 text-white rounded-t-xl">
+                <div><h2 className="text-xl font-bold">Survey Preview</h2><p className="text-indigo-200 text-sm">{project.project_name} - {project.company_name}</p></div>
+                <button onClick={onClose} className="text-white hover:text-indigo-200 text-xl"><i className="fas fa-times"></i></button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+                <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg text-sm text-yellow-800">
+                    <i className="fas fa-info-circle mr-2"></i>This is how employees will see the survey. {questions.length} master questions + {customQs.length} custom questions = {questions.length+customQs.length} total.
+                </div>
+                
+                {questions.length===0&&customQs.length===0?
+                    <div className="text-center py-12 text-gray-500"><i className="fas fa-clipboard-list text-4xl mb-4"></i><p>No questions added yet. Edit the survey to add questions.</p></div>:
+                    <div className="space-y-6">
+                        {questions.map((pq,idx)=>{
+                            const mq=masterQs[pq.master_question_id];
+                            const opts=getOptions(pq);
+                            return(<div key={pq.id} className="p-4 border rounded-lg bg-gray-50">
+                                <p className="font-medium mb-3"><span className="text-indigo-600 mr-2">Q{idx+1}.</span>{mq?.question_text||'Unknown question'}</p>
+                                {opts.length>0&&<div className="ml-6 space-y-2">{opts.map((o,i)=><label key={i} className="flex items-center space-x-3 cursor-pointer"><input type="radio" name={`q${pq.id}`} className="w-4 h-4 text-indigo-600"/><span>{o.code}. {o.text}</span></label>)}</div>}
+                                {mq?.question_type==='open_text'&&<textarea className="w-full mt-2 p-2 border rounded" placeholder="Enter response..." rows={2}></textarea>}
+                            </div>);
+                        })}
+                        {customQs.map((cq,idx)=><div key={`c-${cq.id}`} className="p-4 border-2 border-green-200 rounded-lg bg-green-50">
+                            <p className="font-medium mb-3"><span className="text-green-600 mr-2">Q{questions.length+idx+1}.</span>{cq.question_text}<span className="ml-2 text-xs bg-green-200 text-green-700 px-2 py-0.5 rounded">Custom</span></p>
+                            {cq.options&&cq.options.length>0&&<div className="ml-6 space-y-2">{cq.options.map((o,i)=><label key={i} className="flex items-center space-x-3 cursor-pointer"><input type="radio" name={`cq${cq.id}`} className="w-4 h-4 text-green-600"/><span>{o.code?.toUpperCase()||String.fromCharCode(65+i)}. {o.text}</span></label>)}</div>}
+                            {cq.question_type==='open_text'&&<textarea className="w-full mt-2 p-2 border rounded" placeholder="Enter response..." rows={2}></textarea>}
+                            {cq.question_type==='yes_no'&&<div className="ml-6 space-y-2"><label className="flex items-center space-x-3"><input type="radio" name={`cq${cq.id}`} className="w-4 h-4"/><span>Yes</span></label><label className="flex items-center space-x-3"><input type="radio" name={`cq${cq.id}`} className="w-4 h-4"/><span>No</span></label></div>}
+                            {cq.question_type==='likert_5'&&<div className="ml-6 flex space-x-4">{[1,2,3,4,5].map(n=><label key={n} className="flex flex-col items-center"><input type="radio" name={`cq${cq.id}`} className="w-4 h-4"/><span className="text-sm mt-1">{n}</span></label>)}</div>}
+                        </div>)}
+                    </div>
+                }
+            </div>
+            <div className="p-4 border-t bg-gray-50 flex justify-end">
+                <button onClick={onClose} className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700">Close Preview</button>
+            </div>
+        </div>
+    </div>);
 }
 
 function SurveyBuilder({project,onClose}){
