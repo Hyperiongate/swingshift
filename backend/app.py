@@ -411,7 +411,16 @@ def add_bulk_questions(project_id):
     data = request.get_json()
     
     # Accept either 'question_ids' or 'master_question_ids'
-    new_question_ids = set(data.get('question_ids', data.get('master_question_ids', [])))
+    raw_ids = data.get('question_ids', data.get('master_question_ids', []))
+    # Filter out None, empty strings, and non-integers
+    new_question_ids = set()
+    for qid in raw_ids:
+        if qid is not None and qid != '' and qid != 'undefined':
+            try:
+                new_question_ids.add(int(qid))
+            except (ValueError, TypeError):
+                pass  # Skip invalid IDs
+    
     custom_options = data.get('custom_options', {})  # {question_id: {customOptions: [...]}}
     
     # Get existing project questions
