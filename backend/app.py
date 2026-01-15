@@ -325,10 +325,20 @@ def get_project_questions(project_id):
     
     result = []
     for pq in project_questions:
+        # Parse custom options if they exist
+        custom_opts = None
+        if pq.custom_options_json:
+            try:
+                custom_opts = json.loads(pq.custom_options_json)
+            except:
+                pass
+        
         result.append({
             'id': pq.id,
             'question_id': pq.master_question_id,
-            'question_order': pq.question_order
+            'master_question_id': pq.master_question_id,  # Include both for compatibility
+            'question_order': pq.question_order,
+            'custom_options': custom_opts
         })
     
     return jsonify(result)
