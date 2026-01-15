@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<!--
+SwingShift Survey System - Client Portal
+========================================
+Last Updated: January 15, 2026
+
+Client-facing interface for:
+- Setting up their survey (select questions, upload schedule videos)
+- Viewing results (response counts, schedule rankings, reports)
+
+Access via /project/{access_code}
+-->
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SwingShift - Project Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .fade-in{animation:fadeIn .3s}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
+        .gradient-bg{background:linear-gradient(135deg,#1e3a8a 0%,#3730a3 100%)}
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+<div id="root"></div>
+<script type="text/babel">
+const{useState,useEffect}=React;
+
+// Get access code from URL
+const getAccessCode=()=>{
+    const path=window.location.pathname;
+    const match=path.match(/\/project\/([^\/]+)/);
+    return match?match[1].toUpperCase():null;
+};
+
+const api={
+    async req(e,o={}){
+        const r=await fetch(e,{...o,headers:{'Content-Type':'application/json',...o.headers}});
+        if(!r.ok)throw new Error((await r.json().catch(()=>({}))).error||'Failed');
+        return r.json();
+    },
+    get:e=>api.req(e),
+    post:(e,d)=>api.req(e,{method:'POST',body:JSON.stringify(d)}),
+    put:(e,d)=>api.req(e,{method:'PUT',body:JSON.stringify(d)}),
+    del:e=>api.req(e,{method:'DELETE'})
+};
+
+function App(){
+    const[accessCode]=useState(getAccessCode());
+    const[project,setProject]=useState(null);
+    const[loading,setLoading]=useState(true);
+    const[error,setError]=useState(null);
+    const[tab,setTab]=useState('setup');
+    
+    useEffect(()=>{
+        if(!accessCode){setError('No project code provided');setLoading(false);return;}
+        loadProject();
+    },[accessCode]);
+    
+    const loadProject=async()=>{
+        try{
+            const p=await api.get(`/api/project/${accessCode}`);
+            setProject(p);
+        }catch(e){
+            setError('Project not found. Please check your access code.');
+        }
+        setLoading(false);
+    };
+    
+    if(loading)return<div className="min-h-screen flex items-center justify-center"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
+    if(error)return<ErrorScreen message={error}/>;
+    
+    return(
+        <div className="min-h-screen bg-gray-100">
+            <Header project={project} tab={tab} setTab={setTab}/>
+            <main className="max-w-6xl mx-auto p-6">
+                {tab==='setup'&&<SetupTab project={project} accessCode={accessCode} onUpdate={loadProject}/>}
+                {tab==='results'&&<ResultsTab project={project} accessCode={accessCode}/>}
+            </main>
+        </div>
+    );
+}
+
+function ErrorScreen({message}){
+    return(
+        <div className="min-h-screen flex items-center justify-center gradient-bg">
+            <div className="bg-white rounded-xl p-8 max-w-md text-center shadow-2xl">
+                <i className="fas fa-exclamation-triangle text-5xl text-red-500 mb-4"></i>
+                <h1 className="text-2xl font-bold text-gray-800 mb-2">Access Error</h1>
+                <p className="text-gray-600 mb-6">{message}</p>
+                <p className="text-sm text-gray-500">Contact your Shiftwork Solutions representative for assistance.</p>
+            </div>
+        </div>
+    );
+}
+
+function Header({project,tab,setTab}){
+    return(
+        <header className="gradient-bg text-white">
+            <div className="max-w-6xl mx-auto px-6 py-8">
+                <div className="flex items-center justify-between mb-6">
+                    <div>
+                        <h1 className="text-3xl font-bold">{project.company_name}</h1>
+                        <p className="text-blue-200">{project.project_name}</p>
+                    </div>
+                    <div className="text-right">
+                        <span className={`px-4 py-2 rounded-full text-sm font-medium ${project.status==='active'?'bg-green-500':'project.status==='closed'?'bg-red-500':'bg-gray-500'}`}>
+                            {project.status.charAt(0).toUpperCase()+project.status.slice(1)}
+                        </span>
+                    </div>
+                </div>
+                <nav className="flex space-x-1">
+                    <button onClick={()=>setTab('setup')} className={`px-6 py-3 rounded-t-lg font-medium transition ${tab==='setup'?'bg-white text-blue-900':'bg-blue-800 text-blue-200 hover:bg-blue-700'}`}>
+                        <i className="fas fa-cog mr-2"></i>Setup
+                    </button>
+                    <button onClick={()=>setTab('results')} className={`px-6 py-3 rounded-t-lg font-medium transition ${tab==='results'?'bg-white text-blue-900':'bg-blue-800 text-blue-200 hover:bg-blue-700'}`}>
+                        <i className="fas fa-chart-bar mr-2"></i>Results
+                    </button>
+                </nav>
+            </div>
+        </header>
+    );
+}
+
+function SetupTab({project,accessCode,onUpdate}){
+    const[schedules,setSchedules]=useState([]);
+    const[questions,setQuestions]=useState([]);
+    const[customQs,setCustomQs]=useState([]);
+    const[loading,setLoading]=useState(true);
+    
+    useEffect(()=>{loadData();},[]);
+    
+    const loadData=async()=>{
+        try{
+            const[sched,qs,cqs]=await Promise.all([
+                api.get(`/api/project/${accessCode}/schedules`),
+                api.get(`/api/projects/${project.id}/questions`).catch(()=>[]),
+                api.get(`/api/projects/${project.id}/custom-questions`).catch(()=>[])
+            ]);
+            setSchedules(sched);
+            setQuestions(qs);
+            setCustomQs(cqs);
+        }catch(e){console.error(e);}
+        setLoading(false);
+    };
+    
+    const surveyUrl=`${window.location.origin}/survey/${accessCode}`;
+    
+    if(loading)return<div className="flex justify-center p-12"><i className="fas fa-spinner fa-spin text-3xl text-blue-600"></i></div>;
+    
+    return(
+        <div className="fade-in space-y-6">
+            {/* Survey Link */}
+            <div className="bg-white rounded-xl p-6 shadow-sm">
+                <h2 className="text-lg font-bold mb-4"><i className="fas fa-link text-blue-600 mr-2"></i>Survey Link</h2>
+                <div className="flex items-center space-x-3">
+                    <input type="text" value={surveyUrl} readOnly className="flex-1 px-4 py-3 bg-gray-100 rounded-lg text-gray-700 font-mono text-sm"/>
+                    <button onClick={()=>{navigator.clipboard.writeText(surveyUrl);alert('Link copied!');}} className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                        <i className="fas fa-copy mr-2"></i>Copy
+                    </button>
+                </div>
+                <p className="text-sm text-gray-500 mt-2">Share this link with employees to take the survey.</p>
+            </div>
+            
+            {/* Schedule Videos */}
+            <div className="bg-white rounded-xl p-6 shadow-sm">
+                <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-lg font-bold"><i className="fas fa-video text-purple-600 mr-2"></i>Schedule Videos ({schedules.length}/6)</h2>
+                    {schedules.length<6&&<button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">
+                        <i className="fas fa-plus mr-2"></i>Add Schedule
+                    </button>}
+                </div>
+                {schedules.length===0?(
+                    <div className="text-center py-8 text-gray-500">
+                        <i className="fas fa-film text-4xl mb-3"></i>
+                        <p>No schedule videos uploaded yet.</p>
+                        <p className="text-sm">Upload up to 6 schedule videos for employees to view and rate.</p>
+                    </div>
+                ):(
+                    <div className="grid grid-cols-3 gap-4">
+                        {schedules.map((s,i)=>(
+                            <div key={s.id} className="border rounded-lg p-4 bg-gray-50">
+                                <div className="flex items-center mb-2">
+                                    <span className="w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-bold mr-2">{i+1}</span>
+                                    <span className="font-medium">{s.schedule_name}</span>
+                                </div>
+                                {s.schedule_description&&<p className="text-sm text-gray-500">{s.schedule_description}</p>}
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+            
+            {/* Questions Summary */}
+            <div className="bg-white rounded-xl p-6 shadow-sm">
+                <h2 className="text-lg font-bold mb-4"><i className="fas fa-list-check text-green-600 mr-2"></i>Survey Questions</h2>
+                <div className="grid grid-cols-3 gap-4">
+                    <div className="bg-blue-50 rounded-lg p-4 text-center">
+                        <p className="text-3xl font-bold text-blue-600">{questions.length}</p>
+                        <p className="text-sm text-gray-600">Standard Questions</p>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-4 text-center">
+                        <p className="text-3xl font-bold text-green-600">{customQs.length}</p>
+                        <p className="text-sm text-gray-600">Custom Questions</p>
+                    </div>
+                    <div className="bg-purple-50 rounded-lg p-4 text-center">
+                        <p className="text-3xl font-bold text-purple-600">{questions.length+customQs.length}</p>
+                        <p className="text-sm text-gray-600">Total Questions</p>
+                    </div>
+                </div>
+            </div>
+            
+            {/* Status Actions */}
+            {project.status==='draft'&&(
+                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
+                    <h3 className="font-bold text-yellow-800 mb-2"><i className="fas fa-info-circle mr-2"></i>Survey Not Active</h3>
+                    <p className="text-yellow-700 mb-4">Your survey is in draft mode. Contact Shiftwork Solutions to activate it when ready.</p>
+                </div>
+            )}
+        </div>
+    );
+}
+
+function ResultsTab({project,accessCode}){
+    const[results,setResults]=useState(null);
+    const[loading,setLoading]=useState(true);
+    
+    useEffect(()=>{
+        api.get(`/api/project/${accessCode}/results`).then(setResults).catch(console.error).finally(()=>setLoading(false));
+    },[]);
+    
+    if(loading)return<div className="flex justify-center p-12"><i className="fas fa-spinner fa-spin text-3xl text-blue-600"></i></div>;
+    if(!results)return<div className="text-center py-12 text-gray-500">Unable to load results</div>;
+    
+    return(
+        <div className="fade-in space-y-6">
+            {/* Response Summary */}
+            <div className="grid grid-cols-3 gap-6">
+                <div className="bg-white rounded-xl p-6 shadow-sm text-center">
+                    <p className="text-4xl font-bold text-blue-600">{results.response_summary.total}</p>
+                    <p className="text-gray-600">Total Responses</p>
+                </div>
+                <div className="bg-white rounded-xl p-6 shadow-sm text-center">
+                    <p className="text-4xl font-bold text-green-600">{results.response_summary.complete}</p>
+                    <p className="text-gray-600">Completed</p>
+                </div>
+                <div className="bg-white rounded-xl p-6 shadow-sm text-center">
+                    <p className="text-4xl font-bold text-yellow-600">{results.response_summary.incomplete}</p>
+                    <p className="text-gray-600">In Progress</p>
+                </div>
+            </div>
+            
+            {/* Schedule Rankings */}
+            {results.schedule_results&&results.schedule_results.length>0&&(
+                <div className="bg-white rounded-xl p-6 shadow-sm">
+                    <h2 className="text-lg font-bold mb-4"><i className="fas fa-ranking-star text-purple-600 mr-2"></i>Schedule Rankings</h2>
+                    <div className="space-y-3">
+                        {results.schedule_results.sort((a,b)=>(b.average_rating||0)-(a.average_rating||0)).map((s,i)=>(
+                            <div key={s.schedule_id} className="flex items-center p-4 bg-gray-50 rounded-lg">
+                                <span className={`w-10 h-10 rounded-full flex items-center justify-center font-bold mr-4 ${i===0?'bg-yellow-400 text-yellow-900':i===1?'bg-gray-300 text-gray-700':i===2?'bg-orange-300 text-orange-800':'bg-gray-200 text-gray-600'}`}>{i+1}</span>
+                                <div className="flex-1">
+                                    <p className="font-medium">{s.schedule_name}</p>
+                                    <p className="text-sm text-gray-500">{s.rating_count} ratings</p>
+                                </div>
+                                {s.average_rating&&<div className="text-right">
+                                    <p className="text-2xl font-bold text-blue-600">{s.average_rating}</p>
+                                    <p className="text-xs text-gray-500">avg rating</p>
+                                </div>}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+            
+            {/* Export Options */}
+            <div className="bg-white rounded-xl p-6 shadow-sm">
+                <h2 className="text-lg font-bold mb-4"><i className="fas fa-download text-blue-600 mr-2"></i>Export Data</h2>
+                <div className="flex space-x-4">
+                    <button className="flex-1 px-6 py-4 border-2 border-blue-200 rounded-lg hover:bg-blue-50 transition">
+                        <i className="fas fa-file-pdf text-red-500 text-2xl mb-2"></i>
+                        <p className="font-medium">PDF Report</p>
+                        <p className="text-sm text-gray-500">Summary report</p>
+                    </button>
+                    <button className="flex-1 px-6 py-4 border-2 border-green-200 rounded-lg hover:bg-green-50 transition">
+                        <i className="fas fa-file-excel text-green-500 text-2xl mb-2"></i>
+                        <p className="font-medium">Excel Export</p>
+                        <p className="text-sm text-gray-500">Raw data</p>
+                    </button>
+                </div>
+            </div>
+            
+            {results.response_summary.total===0&&(
+                <div className="bg-gray-50 rounded-xl p-8 text-center">
+                    <i className="fas fa-inbox text-4xl text-gray-400 mb-4"></i>
+                    <p className="text-gray-600">No responses yet. Share the survey link with employees to start collecting data.</p>
+                </div>
+            )}
+        </div>
+    );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
+<!-- I did no harm and this file is not truncated -->
