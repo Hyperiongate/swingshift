@@ -1210,16 +1210,15 @@ def setup_status():
 @app.route('/api/setup/migrate', methods=['GET'])
 def migrate_database():
     """
-    Run database migrations to add new columns.
+    Run database migrations to add new columns and tables.
     Visit: https://swingshift.onrender.com/api/setup/migrate
     """
     results = {'migrations': [], 'errors': []}
     
     try:
-        # Add custom_options_json column to project_questions if not exists
         from sqlalchemy import text
         with db.engine.connect() as conn:
-            # Check if column exists
+            # Migration 1: Add custom_options_json column to project_questions if not exists
             result = conn.execute(text("""
                 SELECT column_name FROM information_schema.columns 
                 WHERE table_name='project_questions' AND column_name='custom_options_json'
@@ -1230,6 +1229,75 @@ def migrate_database():
                 results['migrations'].append('Added custom_options_json to project_questions')
             else:
                 results['migrations'].append('custom_options_json already exists')
+            
+            # Migration 2: Add new columns to projects table
+            new_project_cols = [
+                ('client_password', 'VARCHAR(200)'),
+                ('employee_id_label', "VARCHAR(100) DEFAULT 'Employee Number'"),
+                ('require_employee_id', 'BOOLEAN DEFAULT FALSE'),
+            ]
+            for col_name, col_type in new_project_cols:
+                result = conn.execute(text(f"""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name='projects' AND column_name='{col_name}'
+                """))
+                if not result.fetchone():
+                    conn.execute(text(f"ALTER TABLE projects ADD COLUMN {col_name} {col_type}"))
+                    conn.commit()
+                    results['migrations'].append(f'Added {col_name} to projects')
+                else:
+                    results['migrations'].append(f'{col_name} already exists in projects')
+            
+            # Migration 3: Create schedule_videos table
+            result = conn.execute(text("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_name='schedule_videos'
+            """))
+            if not result.fetchone():
+                conn.execute(text("""
+                    CREATE TABLE schedule_videos (
+                        id SERIAL PRIMARY KEY,
+                        project_id INTEGER NOT NULL REFERENCES projects(id),
+                        schedule_name VARCHAR(200) NOT NULL,
+                        schedule_description TEXT,
+                        display_order INTEGER NOT NULL,
+                        video_filename VARCHAR(500) NOT NULL,
+                        original_filename VARCHAR(500),
+                        video_url VARCHAR(1000),
+                        duration_seconds INTEGER,
+                        file_size_bytes INTEGER,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                conn.commit()
+                results['migrations'].append('Created schedule_videos table')
+            else:
+                results['migrations'].append('schedule_videos table already exists')
+            
+            # Migration 4: Create schedule_ratings table
+            result = conn.execute(text("""
+                SELECT table_name FROM information_schema.tables 
+                WHERE table_name='schedule_ratings'
+            """))
+            if not result.fetchone():
+                conn.execute(text("""
+                    CREATE TABLE schedule_ratings (
+                        id SERIAL PRIMARY KEY,
+                        response_id INTEGER NOT NULL REFERENCES survey_responses(id),
+                        schedule_id INTEGER NOT NULL REFERENCES schedule_videos(id),
+                        rating INTEGER,
+                        rank INTEGER,
+                        comments TEXT,
+                        video_watched BOOLEAN DEFAULT FALSE,
+                        watch_duration_seconds INTEGER,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+                conn.commit()
+                results['migrations'].append('Created schedule_ratings table')
+            else:
+                results['migrations'].append('schedule_ratings table already exists')
                 
     except Exception as e:
         results['errors'].append(f'Migration error: {str(e)}')
