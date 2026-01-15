@@ -151,7 +151,7 @@ function PreviewModal({project,onClose}){
     
     const getOptions=(pq)=>{
         if(pq.custom_options&&pq.custom_options.length>0)return pq.custom_options.map((o,i)=>({code:String.fromCharCode(97+i).toUpperCase(),text:o.text}));
-        const mq=masterQs[pq.master_question_id];
+        const mq=masterQs[pq.question_id];
         if(mq&&mq.options)return mq.options.map(o=>({code:o.option_code,text:o.option_text}));
         return[];
     };
@@ -173,7 +173,7 @@ function PreviewModal({project,onClose}){
                     <div className="text-center py-12 text-gray-500"><i className="fas fa-clipboard-list text-4xl mb-4"></i><p>No questions added yet. Edit the survey to add questions.</p></div>:
                     <div className="space-y-6">
                         {questions.map((pq,idx)=>{
-                            const mq=masterQs[pq.master_question_id];
+                            const mq=masterQs[pq.question_id];
                             const opts=getOptions(pq);
                             return(<div key={pq.id} className="p-4 border rounded-lg bg-gray-50">
                                 <p className="font-medium mb-3"><span className="text-indigo-600 mr-2">Q{idx+1}.</span>{mq?.question_text||'Unknown question'}</p>
@@ -217,7 +217,7 @@ function SurveyBuilder({project,onClose}){
             const[allQ,projQ,custQ]=await Promise.all([api.get('/questions'),api.get(`/projects/${project.id}/questions`),api.get(`/projects/${project.id}/custom-questions`).catch(()=>[])]);
             setQuestions(allQ);setCustomQs(custQ||[]);
             const sel=new Set();const opts={};
-            projQ.forEach(pq=>{sel.add(pq.master_question_id);if(pq.custom_options)opts[pq.master_question_id]=pq.custom_options;});
+            projQ.forEach(pq=>{sel.add(pq.question_id);if(pq.custom_options)opts[pq.question_id]=pq.custom_options;});
             setSelected(sel);setCustomOpts(opts);
         }catch(e){console.error(e);}
         setLoading(false);
