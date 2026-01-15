@@ -1182,7 +1182,12 @@ def setup_database():
 
 @app.route('/api/setup/status', methods=['GET'])
 def setup_status():
-    """Check the current database setup status"""
+    """Check the current database setup status - requires admin API key"""
+    # Require admin authentication
+    auth_error = require_admin()
+    if auth_error:
+        return auth_error
+    
     try:
         question_count = MasterQuestion.query.count()
         project_count = Project.query.count()
