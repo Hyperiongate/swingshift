@@ -1,7 +1,7 @@
 """
 SwingShift Survey System - Database Models
 ==========================================
-Last Updated: January 13, 2026
+Last Updated: January 15, 2026
 
 This file defines all database tables for the survey system:
 - MasterQuestion: The question bank (97+ questions from Shiftwork Solutions)
@@ -9,14 +9,17 @@ This file defines all database tables for the survey system:
 - Project: Client projects/surveys
 - ProjectQuestion: Questions selected for a specific project
 - CustomQuestion: Client-specific questions added to a project
+- ScheduleVideo: Schedule videos uploaded for a project (up to 6)
 - SurveyResponse: Individual employee responses
 - ResponseAnswer: Individual answers within a response
-- NormativeData: Benchmark data from 200+ past surveys
+- ScheduleRating: Employee ratings of schedule videos
+- NormativeData: Benchmark data from hundreds of past surveys
 
 NOTES FOR FUTURE AI:
 - Questions are organized by category (Demographics, Health, Working Conditions, etc.)
 - Response options can be Likert scales (1-5), Yes/No, or multiple choice
 - Each project gets a unique access_code for anonymous survey access
+- Clients access their project via /project/{access_code}
 - NormativeData stores benchmark percentages for comparison
 """
 
@@ -117,6 +120,7 @@ class Project(db.Model):
     """
     A client project/survey engagement.
     Each project has a unique access code for anonymous survey access.
+    Clients access setup/results via /project/{access_code}
     """
     __tablename__ = 'projects'
     
@@ -128,6 +132,7 @@ class Project(db.Model):
     
     # Survey access
     access_code = db.Column(db.String(50), unique=True, nullable=False)  # Unique URL identifier
+    client_password = db.Column(db.String(200), nullable=True)  # Optional password for client portal
     
     # Status
     status = db.Column(db.String(50), default='draft')  # draft, active, closed, completed
@@ -136,6 +141,10 @@ class Project(db.Model):
     is_anonymous = db.Column(db.Boolean, default=True)
     show_progress = db.Column(db.Boolean, default=True)
     randomize_options = db.Column(db.Boolean, default=False)
+    
+    # Employee identifier label (what client calls it)
+    employee_id_label = db.Column(db.String(100), default='Employee Number')
+    require_employee_id = db.Column(db.Boolean, default=False)
     
     # Timestamps
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
@@ -149,6 +158,8 @@ class Project(db.Model):
     custom_questions = db.relationship('CustomQuestion', backref='project', lazy='dynamic',
                                        order_by='CustomQuestion.question_order')
     responses = db.relationship('SurveyResponse', backref='project', lazy='dynamic')
+    schedules = db.relationship('ScheduleVideo', backref='project', lazy='dynamic',
+                               order_by='ScheduleVideo.display_order')
     
     def __init__(self, **kwargs):
         super(Project, self).__init__(**kwargs)
@@ -164,11 +175,14 @@ class Project(db.Model):
             'status': self.status,
             'is_anonymous': self.is_anonymous,
             'show_progress': self.show_progress,
+            'employee_id_label': self.employee_id_label,
+            'require_employee_id': self.require_employee_id,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'opened_at': self.opened_at.isoformat() if self.opened_at else None,
             'closed_at': self.closed_at.isoformat() if self.closed_at else None,
             'response_count': self.responses.count(),
             'question_count': self.questions.count() + self.custom_questions.count(),
+            'schedule_count': self.schedules.count(),
         }
 
 
@@ -384,6 +398,87 @@ class ResponseAnswer(db.Model):
             'answer_code': self.answer_code,
             'answer_numeric': self.answer_numeric,
             'answer_multi': self.answer_multi,
+        }
+
+
+class ScheduleVideo(db.Model):
+    """
+    Schedule videos uploaded for a project.
+    Each project can have up to 6 schedule videos for employees to view and rate.
+    """
+    __tablename__ = 'schedule_videos'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey('projects.id'), nullable=False)
+    
+    # Video identification
+    schedule_name = db.Column(db.String(200), nullable=False)  # e.g., "4-crew 12-hour"
+    schedule_description = db.Column(db.Text, nullable=True)  # Brief description
+    display_order = db.Column(db.Integer, nullable=False)  # 1-6
+    
+    # Video file
+    video_filename = db.Column(db.String(500), nullable=False)  # Stored filename
+    original_filename = db.Column(db.String(500), nullable=True)  # Original upload name
+    video_url = db.Column(db.String(1000), nullable=True)  # If using external hosting
+    
+    # Metadata
+    duration_seconds = db.Column(db.Integer, nullable=True)
+    file_size_bytes = db.Column(db.Integer, nullable=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Relationships
+    ratings = db.relationship('ScheduleRating', backref='schedule', lazy='dynamic')
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'project_id': self.project_id,
+            'schedule_name': self.schedule_name,
+            'schedule_description': self.schedule_description,
+            'display_order': self.display_order,
+            'video_filename': self.video_filename,
+            'original_filename': self.original_filename,
+            'video_url': self.video_url,
+            'duration_seconds': self.duration_seconds,
+            'rating_count': self.ratings.count(),
+        }
+
+
+class ScheduleRating(db.Model):
+    """
+    Employee ratings of schedule videos.
+    Each employee rates each schedule they view.
+    """
+    __tablename__ = 'schedule_ratings'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    response_id = db.Column(db.Integer, db.ForeignKey('survey_responses.id'), nullable=False)
+    schedule_id = db.Column(db.Integer, db.ForeignKey('schedule_videos.id'), nullable=False)
+    
+    # Rating (1-5 or rank order)
+    rating = db.Column(db.Integer, nullable=True)  # 1-5 preference rating
+    rank = db.Column(db.Integer, nullable=True)  # 1-6 rank order (1=most preferred)
+    
+    # Optional comments
+    comments = db.Column(db.Text, nullable=True)
+    
+    # Tracking
+    video_watched = db.Column(db.Boolean, default=False)  # Did they watch the full video?
+    watch_duration_seconds = db.Column(db.Integer, nullable=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'response_id': self.response_id,
+            'schedule_id': self.schedule_id,
+            'rating': self.rating,
+            'rank': self.rank,
+            'comments': self.comments,
+            'video_watched': self.video_watched,
         }
 
 
