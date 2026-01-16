@@ -1,12 +1,22 @@
 <!DOCTYPE html>
 <!--
-SwingShift Survey System - Client Portal
-========================================
-Last Updated: January 15, 2026
+SwingShift Survey System - Client Portal (REDESIGNED)
+=====================================================
+Last Updated: January 16, 2026
 
-Client-facing interface for:
-- Setting up their survey (select questions, upload schedule videos)
-- Viewing results (response counts, schedule rankings, reports)
+WORKFLOW:
+1. Welcome & Instructions
+2. Step 1: Select Questions from Question Bank
+3. Step 2: Upload Schedule Videos (up to 6)
+4. Step 3: Review & Launch Survey
+5. Step 4: Monitor Responses (live)
+6. Step 5: View Results (after Jim reviews)
+
+CLIENT WORKFLOW (not admin):
+- Client selects questions
+- Client uploads schedule videos
+- Client launches survey
+- Jim reviews results first before client sees them
 
 Access via /project/{access_code}
 -->
@@ -14,7 +24,7 @@ Access via /project/{access_code}
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SwingShift - Project Portal</title>
+    <title>SwingShift Survey Portal</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -24,14 +34,16 @@ Access via /project/{access_code}
         .fade-in{animation:fadeIn .3s}
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
         .gradient-bg{background:linear-gradient(135deg,#1e3a8a 0%,#3730a3 100%)}
+        .step-incomplete{background:#e5e7eb;color:#6b7280}
+        .step-active{background:#3b82f6;color:white}
+        .step-complete{background:#10b981;color:white}
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
+<body class="bg-gray-50 min-h-screen">
 <div id="root"></div>
 <script type="text/babel">
 const{useState,useEffect}=React;
 
-// Get access code from URL
 const getAccessCode=()=>{
     const path=window.location.pathname;
     const match=path.match(/\/project\/([^\/]+)/);
@@ -50,12 +62,246 @@ const api={
     del:e=>api.req(e,{method:'DELETE'})
 };
 
+// Welcome Screen Component
+function WelcomeScreen({onStart}){
+    return(
+        <div className="fade-in max-w-4xl mx-auto">
+            <div className="bg-white rounded-2xl shadow-lg p-8 mb-6">
+                <div className="text-center mb-8">
+                    <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i className="fas fa-clipboard-check text-blue-600 text-3xl"></i>
+                    </div>
+                    <h1 className="text-3xl font-bold text-gray-900 mb-2">Welcome to Your Shiftwork Survey Portal</h1>
+                    <p className="text-lg text-gray-600">Everything you need to create, administer, and analyze your employee shift schedule survey</p>
+                </div>
+
+                <div className="bg-blue-50 border-l-4 border-blue-500 p-6 mb-8">
+                    <h2 className="font-bold text-blue-900 mb-2 flex items-center">
+                        <i className="fas fa-info-circle mr-2"></i>
+                        About This Survey Process
+                    </h2>
+                    <p className="text-blue-800">
+                        This survey helps you understand your employees' preferences about shift schedules, work-life balance, and operational needs. 
+                        With over 30 years of experience across hundreds of facilities, we've proven that the best schedules are those your employees actually choose.
+                    </p>
+                </div>
+
+                <div className="space-y-6 mb-8">
+                    <h2 className="text-xl font-bold text-gray-900">Your Survey Process (5 Steps)</h2>
+                    
+                    <div className="flex items-start space-x-4">
+                        <div className="flex-shrink-0 w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold">1</div>
+                        <div className="flex-1">
+                            <h3 className="font-bold text-gray-900 mb-1">Select Survey Questions</h3>
+                            <p className="text-gray-600">Choose from our proven question bank covering demographics, schedule preferences, overtime, work-life balance, and more. You can select exactly the questions that matter for your facility.</p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-start space-x-4">
+                        <div className="flex-shrink-0 w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold">2</div>
+                        <div className="flex-1">
+                            <h3 className="font-bold text-gray-900 mb-1">Upload Schedule Videos</h3>
+                            <p className="text-gray-600">Upload up to 6 schedule video options for employees to review and rate. Employees will watch these videos and provide feedback on which schedules they prefer.</p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-start space-x-4">
+                        <div className="flex-shrink-0 w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold">3</div>
+                        <div className="flex-1">
+                            <h3 className="font-bold text-gray-900 mb-1">Review & Launch Survey</h3>
+                            <p className="text-gray-600">Preview your complete survey, then launch it. You'll get a unique survey link to share with your employees via email, intranet, or posted notices.</p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-start space-x-4">
+                        <div className="flex-shrink-0 w-10 h-10 bg-green-600 text-white rounded-full flex items-center justify-center font-bold">4</div>
+                        <div className="flex-1">
+                            <h3 className="font-bold text-gray-900 mb-1">Monitor Responses</h3>
+                            <p className="text-gray-600">Watch real-time as employees complete the survey. Track participation rates and see which departments are responding.</p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-start space-x-4">
+                        <div className="flex-shrink-0 w-10 h-10 bg-green-600 text-white rounded-full flex items-center justify-center font-bold">5</div>
+                        <div className="flex-1">
+                            <h3 className="font-bold text-gray-900 mb-1">View Results & Reports</h3>
+                            <p className="text-gray-600">After our team reviews your results, you'll see detailed analysis including schedule rankings, demographic breakdowns, and comprehensive reports you can download.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="bg-yellow-50 border-l-4 border-yellow-500 p-6 mb-8">
+                    <h3 className="font-bold text-yellow-900 mb-2 flex items-center">
+                        <i className="fas fa-lightbulb mr-2"></i>
+                        Important Notes
+                    </h3>
+                    <ul className="space-y-2 text-yellow-800">
+                        <li className="flex items-start">
+                            <i className="fas fa-check text-yellow-600 mr-2 mt-1"></i>
+                            <span>Your survey data is completely anonymous - employees are never identified individually</span>
+                        </li>
+                        <li className="flex items-start">
+                            <i className="fas fa-check text-yellow-600 mr-2 mt-1"></i>
+                            <span>Plan 7-10 days for survey collection to get good participation</span>
+                        </li>
+                        <li className="flex items-start">
+                            <i className="fas fa-check text-yellow-600 mr-2 mt-1"></i>
+                            <span>Our consultants will review results first to ensure quality analysis</span>
+                        </li>
+                        <li className="flex items-start">
+                            <i className="fas fa-check text-yellow-600 mr-2 mt-1"></i>
+                            <span>You can save your progress and return anytime using your portal link</span>
+                        </li>
+                    </ul>
+                </div>
+
+                <button 
+                    onClick={onStart}
+                    className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-6 rounded-xl text-lg transition flex items-center justify-center space-x-2"
+                >
+                    <span>Get Started</span>
+                    <i className="fas fa-arrow-right"></i>
+                </button>
+            </div>
+
+            <div className="bg-white rounded-xl p-6 shadow text-center">
+                <p className="text-gray-600 mb-2">Need help or have questions?</p>
+                <p className="text-gray-900 font-medium">Contact: Jim Dillingham</p>
+                <p className="text-blue-600">jim@shift-work.com | (415) 763-5005</p>
+            </div>
+        </div>
+    );
+}
+
+// Progress Steps Component
+function ProgressSteps({currentStep}){
+    const steps=[
+        {num:1,label:'Select Questions',icon:'fa-list-check'},
+        {num:2,label:'Schedule Videos',icon:'fa-video'},
+        {num:3,label:'Review & Launch',icon:'fa-rocket'},
+        {num:4,label:'Monitor',icon:'fa-chart-line'},
+        {num:5,label:'Results',icon:'fa-trophy'}
+    ];
+    
+    return(
+        <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+            <div className="flex items-center justify-between">
+                {steps.map((step,idx)=>(
+                    <React.Fragment key={step.num}>
+                        <div className="flex flex-col items-center flex-1">
+                            <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold mb-2 ${
+                                currentStep>step.num?'step-complete':currentStep===step.num?'step-active':'step-incomplete'
+                            }`}>
+                                {currentStep>step.num?<i className="fas fa-check"></i>:step.num}
+                            </div>
+                            <p className="text-xs text-center font-medium text-gray-700">{step.label}</p>
+                        </div>
+                        {idx<steps.length-1&&<div className="flex-1 h-1 bg-gray-300 mx-2 mt-[-20px]"></div>}
+                    </React.Fragment>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+// Step 1: Question Selection
+function QuestionSelection({accessCode,onNext}){
+    const[questions,setQuestions]=useState([]);
+    const[selected,setSelected]=useState([]);
+    const[loading,setLoading]=useState(true);
+    const[saving,setSaving]=useState(false);
+    
+    useEffect(()=>{loadQuestions();},[]);
+    
+    const loadQuestions=async()=>{
+        try{
+            const [allQs,selectedQs]=await Promise.all([
+                api.get('/api/questions'),
+                api.get(`/api/project/${accessCode}/questions`)
+            ]);
+            setQuestions(allQs);
+            setSelected(selectedQs.map(q=>q.question_id||q.master_question_id));
+        }catch(e){console.error(e);}
+        setLoading(false);
+    };
+    
+    const toggleQuestion=(qid)=>{
+        setSelected(prev=>prev.includes(qid)?prev.filter(id=>id!==qid):[...prev,qid]);
+    };
+    
+    const handleSave=async()=>{
+        setSaving(true);
+        try{
+            // Call bulk update endpoint (will need to get project.id first)
+            const proj=await api.get(`/api/project/${accessCode}`);
+            await api.post(`/api/projects/${proj.id}/questions/bulk`,{
+                question_ids:selected
+            },{headers:{'X-API-Key':'YOUR_ADMIN_KEY'}});  // TODO: This needs fixing
+            onNext();
+        }catch(e){alert('Error saving: '+e.message);}
+        setSaving(false);
+    };
+    
+    if(loading)return<div className="text-center p-12"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
+    
+    const byCategory=questions.reduce((acc,q)=>{
+        if(!acc[q.category])acc[q.category]=[];
+        acc[q.category].push(q);
+        return acc;
+    },{});
+    
+    return(
+        <div className="fade-in">
+            <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
+                <h2 className="text-2xl font-bold mb-2">Step 1: Select Survey Questions</h2>
+                <p className="text-gray-600 mb-4">Choose the questions you want to ask your employees. Selected: {selected.length} questions</p>
+                
+                {Object.entries(byCategory).map(([cat,qs])=>(
+                    <div key={cat} className="mb-6">
+                        <h3 className="font-bold text-lg mb-3 text-blue-900">{cat} ({qs.length} questions)</h3>
+                        <div className="space-y-2">
+                            {qs.map(q=>(
+                                <label key={q.id} className="flex items-start p-4 border rounded-lg hover:bg-blue-50 cursor-pointer transition">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selected.includes(q.id)}
+                                        onChange={()=>toggleQuestion(q.id)}
+                                        className="mt-1 mr-3"
+                                    />
+                                    <div className="flex-1">
+                                        <span className="text-gray-500 text-sm">Q{q.question_number}</span>
+                                        <p className="text-gray-900">{q.question_text}</p>
+                                        <span className="text-xs text-gray-500">{q.question_type}</span>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    </div>
+                ))}
+            </div>
+            
+            <div className="flex justify-between">
+                <div></div>
+                <button 
+                    onClick={handleSave} 
+                    disabled={saving||selected.length===0}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg disabled:opacity-50"
+                >
+                    {saving?'Saving...':'Save & Continue'}
+                </button>
+            </div>
+        </div>
+    );
+}
+
+// Main App Component
 function App(){
     const[accessCode]=useState(getAccessCode());
     const[project,setProject]=useState(null);
     const[loading,setLoading]=useState(true);
     const[error,setError]=useState(null);
-    const[tab,setTab]=useState('setup');
+    const[showWelcome,setShowWelcome]=useState(true);
+    const[currentStep,setCurrentStep]=useState(1);
     
     useEffect(()=>{
         if(!accessCode){setError('No project code provided');setLoading(false);return;}
@@ -67,239 +313,36 @@ function App(){
             const p=await api.get(`/api/project/${accessCode}`);
             setProject(p);
         }catch(e){
-            setError('Project not found. Please check your access code.');
+            setError('Project not found');
         }
         setLoading(false);
     };
     
     if(loading)return<div className="min-h-screen flex items-center justify-center"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
-    if(error)return<ErrorScreen message={error}/>;
+    if(error)return<div className="min-h-screen flex items-center justify-center"><div className="text-center"><i className="fas fa-exclamation-triangle text-red-500 text-5xl mb-4"></i><h1 className="text-2xl font-bold text-gray-900">{error}</h1></div></div>;
     
     return(
-        <div className="min-h-screen bg-gray-100">
-            <Header project={project} tab={tab} setTab={setTab}/>
-            <main className="max-w-6xl mx-auto p-6">
-                {tab==='setup'&&<SetupTab project={project} accessCode={accessCode} onUpdate={loadProject}/>}
-                {tab==='results'&&<ResultsTab project={project} accessCode={accessCode}/>}
-            </main>
-        </div>
-    );
-}
-
-function ErrorScreen({message}){
-    return(
-        <div className="min-h-screen flex items-center justify-center gradient-bg">
-            <div className="bg-white rounded-xl p-8 max-w-md text-center shadow-2xl">
-                <i className="fas fa-exclamation-triangle text-5xl text-red-500 mb-4"></i>
-                <h1 className="text-2xl font-bold text-gray-800 mb-2">Access Error</h1>
-                <p className="text-gray-600 mb-6">{message}</p>
-                <p className="text-sm text-gray-500">Contact your Shiftwork Solutions representative for assistance.</p>
-            </div>
-        </div>
-    );
-}
-
-function Header({project,tab,setTab}){
-    return(
-        <header className="gradient-bg text-white">
-            <div className="max-w-6xl mx-auto px-6 py-8">
-                <div className="flex items-center justify-between mb-6">
-                    <div>
-                        <h1 className="text-3xl font-bold">{project.company_name}</h1>
-                        <p className="text-blue-200">{project.project_name}</p>
-                    </div>
-                    <div className="text-right">
-                        <span className={`px-4 py-2 rounded-full text-sm font-medium ${project.status==='active'?'bg-green-500':project.status==='closed'?'bg-red-500':'bg-gray-500'}`}>
-                            {project.status.charAt(0).toUpperCase()+project.status.slice(1)}
-                        </span>
-                    </div>
+        <div className="min-h-screen p-6">
+            {/* Header */}
+            <div className="max-w-6xl mx-auto mb-6">
+                <div className="bg-gradient-bg rounded-xl p-6 text-white">
+                    <h1 className="text-2xl font-bold">{project.company_name}</h1>
+                    <p className="text-blue-100">{project.project_name}</p>
+                    <p className="text-sm text-blue-200 mt-2">Status: <span className="font-bold">{project.status}</span></p>
                 </div>
-                <nav className="flex space-x-1">
-                    <button onClick={()=>setTab('setup')} className={`px-6 py-3 rounded-t-lg font-medium transition ${tab==='setup'?'bg-white text-blue-900':'bg-blue-800 text-blue-200 hover:bg-blue-700'}`}>
-                        <i className="fas fa-cog mr-2"></i>Setup
-                    </button>
-                    <button onClick={()=>setTab('results')} className={`px-6 py-3 rounded-t-lg font-medium transition ${tab==='results'?'bg-white text-blue-900':'bg-blue-800 text-blue-200 hover:bg-blue-700'}`}>
-                        <i className="fas fa-chart-bar mr-2"></i>Results
-                    </button>
-                </nav>
-            </div>
-        </header>
-    );
-}
-
-function SetupTab({project,accessCode,onUpdate}){
-    const[schedules,setSchedules]=useState([]);
-    const[questions,setQuestions]=useState([]);
-    const[customQs,setCustomQs]=useState([]);
-    const[loading,setLoading]=useState(true);
-    
-    useEffect(()=>{loadData();},[]);
-    
-    const loadData=async()=>{
-        try{
-            const[sched,qs,cqs]=await Promise.all([
-                api.get(`/api/project/${accessCode}/schedules`),
-                api.get(`/api/projects/${project.id}/questions`).catch(()=>[]),
-                api.get(`/api/projects/${project.id}/custom-questions`).catch(()=>[])
-            ]);
-            setSchedules(sched);
-            setQuestions(qs);
-            setCustomQs(cqs);
-        }catch(e){console.error(e);}
-        setLoading(false);
-    };
-    
-    const surveyUrl=`${window.location.origin}/survey/${accessCode}`;
-    
-    if(loading)return<div className="flex justify-center p-12"><i className="fas fa-spinner fa-spin text-3xl text-blue-600"></i></div>;
-    
-    return(
-        <div className="fade-in space-y-6">
-            {/* Survey Link */}
-            <div className="bg-white rounded-xl p-6 shadow-sm">
-                <h2 className="text-lg font-bold mb-4"><i className="fas fa-link text-blue-600 mr-2"></i>Survey Link</h2>
-                <div className="flex items-center space-x-3">
-                    <input type="text" value={surveyUrl} readOnly className="flex-1 px-4 py-3 bg-gray-100 rounded-lg text-gray-700 font-mono text-sm"/>
-                    <button onClick={()=>{navigator.clipboard.writeText(surveyUrl);alert('Link copied!');}} className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-                        <i className="fas fa-copy mr-2"></i>Copy
-                    </button>
-                </div>
-                <p className="text-sm text-gray-500 mt-2">Share this link with employees to take the survey.</p>
             </div>
             
-            {/* Schedule Videos */}
-            <div className="bg-white rounded-xl p-6 shadow-sm">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-lg font-bold"><i className="fas fa-video text-purple-600 mr-2"></i>Schedule Videos ({schedules.length}/6)</h2>
-                    {schedules.length<6&&<button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm hover:bg-purple-700">
-                        <i className="fas fa-plus mr-2"></i>Add Schedule
-                    </button>}
-                </div>
-                {schedules.length===0?(
-                    <div className="text-center py-8 text-gray-500">
-                        <i className="fas fa-film text-4xl mb-3"></i>
-                        <p>No schedule videos uploaded yet.</p>
-                        <p className="text-sm">Upload up to 6 schedule videos for employees to view and rate.</p>
-                    </div>
+            <div className="max-w-6xl mx-auto">
+                {showWelcome?(
+                    <WelcomeScreen onStart={()=>setShowWelcome(false)}/>
                 ):(
-                    <div className="grid grid-cols-3 gap-4">
-                        {schedules.map((s,i)=>(
-                            <div key={s.id} className="border rounded-lg p-4 bg-gray-50">
-                                <div className="flex items-center mb-2">
-                                    <span className="w-8 h-8 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center font-bold mr-2">{i+1}</span>
-                                    <span className="font-medium">{s.schedule_name}</span>
-                                </div>
-                                {s.schedule_description&&<p className="text-sm text-gray-500">{s.schedule_description}</p>}
-                            </div>
-                        ))}
-                    </div>
+                    <>
+                        <ProgressSteps currentStep={currentStep}/>
+                        {currentStep===1&&<QuestionSelection accessCode={accessCode} onNext={()=>setCurrentStep(2)}/>}
+                        {currentStep===2&&<div className="bg-white rounded-xl p-12 text-center"><p className="text-gray-600">Step 2: Schedule Videos (Coming next...)</p></div>}
+                    </>
                 )}
             </div>
-            
-            {/* Questions Summary */}
-            <div className="bg-white rounded-xl p-6 shadow-sm">
-                <h2 className="text-lg font-bold mb-4"><i className="fas fa-list-check text-green-600 mr-2"></i>Survey Questions</h2>
-                <div className="grid grid-cols-3 gap-4">
-                    <div className="bg-blue-50 rounded-lg p-4 text-center">
-                        <p className="text-3xl font-bold text-blue-600">{questions.length}</p>
-                        <p className="text-sm text-gray-600">Standard Questions</p>
-                    </div>
-                    <div className="bg-green-50 rounded-lg p-4 text-center">
-                        <p className="text-3xl font-bold text-green-600">{customQs.length}</p>
-                        <p className="text-sm text-gray-600">Custom Questions</p>
-                    </div>
-                    <div className="bg-purple-50 rounded-lg p-4 text-center">
-                        <p className="text-3xl font-bold text-purple-600">{questions.length+customQs.length}</p>
-                        <p className="text-sm text-gray-600">Total Questions</p>
-                    </div>
-                </div>
-            </div>
-            
-            {/* Status Actions */}
-            {project.status==='draft'&&(
-                <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-6">
-                    <h3 className="font-bold text-yellow-800 mb-2"><i className="fas fa-info-circle mr-2"></i>Survey Not Active</h3>
-                    <p className="text-yellow-700 mb-4">Your survey is in draft mode. Contact Shiftwork Solutions to activate it when ready.</p>
-                </div>
-            )}
-        </div>
-    );
-}
-
-function ResultsTab({project,accessCode}){
-    const[results,setResults]=useState(null);
-    const[loading,setLoading]=useState(true);
-    
-    useEffect(()=>{
-        api.get(`/api/project/${accessCode}/results`).then(setResults).catch(console.error).finally(()=>setLoading(false));
-    },[]);
-    
-    if(loading)return<div className="flex justify-center p-12"><i className="fas fa-spinner fa-spin text-3xl text-blue-600"></i></div>;
-    if(!results)return<div className="text-center py-12 text-gray-500">Unable to load results</div>;
-    
-    return(
-        <div className="fade-in space-y-6">
-            {/* Response Summary */}
-            <div className="grid grid-cols-3 gap-6">
-                <div className="bg-white rounded-xl p-6 shadow-sm text-center">
-                    <p className="text-4xl font-bold text-blue-600">{results.response_summary.total}</p>
-                    <p className="text-gray-600">Total Responses</p>
-                </div>
-                <div className="bg-white rounded-xl p-6 shadow-sm text-center">
-                    <p className="text-4xl font-bold text-green-600">{results.response_summary.complete}</p>
-                    <p className="text-gray-600">Completed</p>
-                </div>
-                <div className="bg-white rounded-xl p-6 shadow-sm text-center">
-                    <p className="text-4xl font-bold text-yellow-600">{results.response_summary.incomplete}</p>
-                    <p className="text-gray-600">In Progress</p>
-                </div>
-            </div>
-            
-            {/* Schedule Rankings */}
-            {results.schedule_results&&results.schedule_results.length>0&&(
-                <div className="bg-white rounded-xl p-6 shadow-sm">
-                    <h2 className="text-lg font-bold mb-4"><i className="fas fa-ranking-star text-purple-600 mr-2"></i>Schedule Rankings</h2>
-                    <div className="space-y-3">
-                        {results.schedule_results.sort((a,b)=>(b.average_rating||0)-(a.average_rating||0)).map((s,i)=>(
-                            <div key={s.schedule_id} className="flex items-center p-4 bg-gray-50 rounded-lg">
-                                <span className={`w-10 h-10 rounded-full flex items-center justify-center font-bold mr-4 ${i===0?'bg-yellow-400 text-yellow-900':i===1?'bg-gray-300 text-gray-700':i===2?'bg-orange-300 text-orange-800':'bg-gray-200 text-gray-600'}`}>{i+1}</span>
-                                <div className="flex-1">
-                                    <p className="font-medium">{s.schedule_name}</p>
-                                    <p className="text-sm text-gray-500">{s.rating_count} ratings</p>
-                                </div>
-                                {s.average_rating&&<div className="text-right">
-                                    <p className="text-2xl font-bold text-blue-600">{s.average_rating}</p>
-                                    <p className="text-xs text-gray-500">avg rating</p>
-                                </div>}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-            
-            {/* Export Options */}
-            <div className="bg-white rounded-xl p-6 shadow-sm">
-                <h2 className="text-lg font-bold mb-4"><i className="fas fa-download text-blue-600 mr-2"></i>Export Data</h2>
-                <div className="flex space-x-4">
-                    <button className="flex-1 px-6 py-4 border-2 border-blue-200 rounded-lg hover:bg-blue-50 transition">
-                        <i className="fas fa-file-pdf text-red-500 text-2xl mb-2"></i>
-                        <p className="font-medium">PDF Report</p>
-                        <p className="text-sm text-gray-500">Summary report</p>
-                    </button>
-                    <button className="flex-1 px-6 py-4 border-2 border-green-200 rounded-lg hover:bg-green-50 transition">
-                        <i className="fas fa-file-excel text-green-500 text-2xl mb-2"></i>
-                        <p className="font-medium">Excel Export</p>
-                        <p className="text-sm text-gray-500">Raw data</p>
-                    </button>
-                </div>
-            </div>
-            
-            {results.response_summary.total===0&&(
-                <div className="bg-gray-50 rounded-xl p-8 text-center">
-                    <i className="fas fa-inbox text-4xl text-gray-400 mb-4"></i>
-                    <p className="text-gray-600">No responses yet. Share the survey link with employees to start collecting data.</p>
-                </div>
-            )}
         </div>
     );
 }
