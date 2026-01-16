@@ -1,7 +1,12 @@
 """
 SwingShift Survey System - Main Flask Application
 =================================================
-Last Updated: January 13, 2026
+Last Updated: January 16, 2026
+
+CHANGES IN THIS VERSION:
+- Added public endpoints for client portal to fetch questions using access_code
+- /api/project/{access_code}/questions - Get standard questions for a project
+- /api/project/{access_code}/custom-questions - Get custom questions for a project
 
 This is the main Flask application that provides the REST API for:
 - Question Bank management (CRUD for master questions)
@@ -241,6 +246,85 @@ def get_project_results_by_code(access_code):
     })
 
 
+# NEW PUBLIC ENDPOINTS FOR CLIENT PORTAL - Added January 16, 2026
+@app.route('/api/project/<access_code>/questions', methods=['GET'])
+def get_project_questions_by_code(access_code):
+    """
+    Get all standard questions for a project using access_code (PUBLIC - no auth required)
+    This allows the client portal to display selected questions without admin API key
+    """
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    # Get project questions with full details
+    project_questions = ProjectQuestion.query.filter_by(project_id=project.id).order_by(ProjectQuestion.question_order).all()
+    
+    result = []
+    for pq in project_questions:
+        # Get the master question details
+        master_q = pq.master_question
+        if not master_q:
+            continue
+            
+        q_dict = {
+            'id': pq.id,
+            'question_id': pq.master_question_id,
+            'master_question_id': pq.master_question_id,
+            'question_order': pq.question_order,
+            'question_text': master_q.question_text,
+            'question_number': master_q.question_number,
+            'category': master_q.category,
+            'question_type': master_q.question_type
+        }
+        
+        # Parse custom options if they exist
+        if pq.custom_options_json:
+            try:
+                q_dict['custom_options'] = json.loads(pq.custom_options_json)
+            except:
+                q_dict['custom_options'] = None
+        else:
+            q_dict['custom_options'] = None
+        
+        result.append(q_dict)
+    
+    return jsonify(result)
+
+
+@app.route('/api/project/<access_code>/custom-questions', methods=['GET'])
+def get_project_custom_questions_by_code(access_code):
+    """
+    Get all custom questions for a project using access_code (PUBLIC - no auth required)
+    This allows the client portal to display custom questions without admin API key
+    """
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    # Get custom questions
+    custom_questions = CustomQuestion.query.filter_by(project_id=project.id).order_by(CustomQuestion.question_order).all()
+    
+    result = []
+    for cq in custom_questions:
+        cq_dict = {
+            'id': cq.id,
+            'question_text': cq.question_text,
+            'question_type': cq.question_type,
+            'question_order': cq.question_order,
+            'likert_low_label': cq.likert_low_label,
+            'likert_high_label': cq.likert_high_label
+        }
+        
+        # Get response options
+        options = CustomResponseOption.query.filter_by(custom_question_id=cq.id).order_by(CustomResponseOption.display_order).all()
+        cq_dict['options'] = [{'option_text': o.option_text, 'option_code': o.option_code} for o in options]
+        
+        result.append(cq_dict)
+    
+    return jsonify(result)
+
+
 # ============================================================================
 # EMPLOYEE SURVEY (Public Web UI)
 # ============================================================================
@@ -453,7 +537,7 @@ def update_project(project_id):
 
 @app.route('/api/projects/<int:project_id>/questions', methods=['GET'])
 def get_project_questions(project_id):
-    """Get all questions for a project"""
+    """Get all questions for a project (ADMIN ONLY - requires API key)"""
     auth_error = require_admin()
     if auth_error:
         return auth_error
@@ -631,7 +715,7 @@ def add_bulk_questions(project_id):
 
 @app.route('/api/projects/<int:project_id>/custom-questions', methods=['GET'])
 def get_custom_questions(project_id):
-    """Get all custom questions for a project"""
+    """Get all custom questions for a project (ADMIN ONLY - requires API key)"""
     auth_error = require_admin()
     if auth_error:
         return auth_error
