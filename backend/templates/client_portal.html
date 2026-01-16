@@ -109,7 +109,7 @@ function WelcomeScreen({onStart}){
                         <div className="flex-shrink-0 w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold">3</div>
                         <div className="flex-1">
                             <h3 className="font-bold text-gray-900 mb-1">Review & Launch Survey</h3>
-                            <p className="text-gray-600">Preview your complete survey, then launch it. You'll get a unique survey link to share with your employees via email, intranet, or posted notices.</p>
+                            <p className="text-gray-600">Preview your complete survey, then launch it. We'll generate anonymous login numbers for employees (optionally segregated by department/shift). You'll get a unique survey link and login numbers to distribute.</p>
                         </div>
                     </div>
 
@@ -205,11 +205,12 @@ function ProgressSteps({currentStep}){
 }
 
 // Step 1: Question Selection
-function QuestionSelection({accessCode,onNext}){
+function QuestionSelection({accessCode,onNext,onSkip,onBack}){
     const[questions,setQuestions]=useState([]);
     const[selected,setSelected]=useState([]);
     const[loading,setLoading]=useState(true);
     const[saving,setSaving]=useState(false);
+    const[showCustomModal,setShowCustomModal]=useState(false);
     
     useEffect(()=>{loadQuestions();},[]);
     
@@ -232,11 +233,9 @@ function QuestionSelection({accessCode,onNext}){
     const handleSave=async()=>{
         setSaving(true);
         try{
-            // Call bulk update endpoint (will need to get project.id first)
-            const proj=await api.get(`/api/project/${accessCode}`);
-            await api.post(`/api/projects/${proj.id}/questions/bulk`,{
+            await api.post(`/api/project/${accessCode}/questions/bulk`,{
                 question_ids:selected
-            },{headers:{'X-API-Key':'YOUR_ADMIN_KEY'}});  // TODO: This needs fixing
+            });
             onNext();
         }catch(e){alert('Error saving: '+e.message);}
         setSaving(false);
@@ -253,8 +252,19 @@ function QuestionSelection({accessCode,onNext}){
     return(
         <div className="fade-in">
             <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-                <h2 className="text-2xl font-bold mb-2">Step 1: Select Survey Questions</h2>
-                <p className="text-gray-600 mb-4">Choose the questions you want to ask your employees. Selected: {selected.length} questions</p>
+                <div className="flex items-center justify-between mb-4">
+                    <div>
+                        <h2 className="text-2xl font-bold">Step 1: Select Survey Questions</h2>
+                        <p className="text-gray-600">Choose questions from our proven question bank. Selected: <span className="font-bold text-blue-600">{selected.length}</span> questions</p>
+                    </div>
+                    <button 
+                        onClick={()=>setShowCustomModal(true)}
+                        className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg flex items-center space-x-2"
+                    >
+                        <i className="fas fa-plus"></i>
+                        <span>Create Custom Question</span>
+                    </button>
+                </div>
                 
                 {Object.entries(byCategory).map(([cat,qs])=>(
                     <div key={cat} className="mb-6">
@@ -266,12 +276,12 @@ function QuestionSelection({accessCode,onNext}){
                                         type="checkbox" 
                                         checked={selected.includes(q.id)}
                                         onChange={()=>toggleQuestion(q.id)}
-                                        className="mt-1 mr-3"
+                                        className="mt-1 mr-3 w-5 h-5"
                                     />
                                     <div className="flex-1">
                                         <span className="text-gray-500 text-sm">Q{q.question_number}</span>
                                         <p className="text-gray-900">{q.question_text}</p>
-                                        <span className="text-xs text-gray-500">{q.question_type}</span>
+                                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{q.question_type}</span>
                                     </div>
                                 </label>
                             ))}
@@ -280,15 +290,159 @@ function QuestionSelection({accessCode,onNext}){
                 ))}
             </div>
             
-            <div className="flex justify-between">
-                <div></div>
+            <div className="flex justify-between items-center">
                 <button 
-                    onClick={handleSave} 
-                    disabled={saving||selected.length===0}
-                    className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg disabled:opacity-50"
+                    onClick={onBack}
+                    className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-3 px-6 rounded-lg flex items-center space-x-2"
                 >
-                    {saving?'Saving...':'Save & Continue'}
+                    <i className="fas fa-arrow-left"></i>
+                    <span>Back</span>
                 </button>
+                
+                <div className="flex space-x-3">
+                    <button 
+                        onClick={onSkip}
+                        className="bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold py-3 px-6 rounded-lg"
+                    >
+                        Skip for Later
+                    </button>
+                    <button 
+                        onClick={handleSave} 
+                        disabled={saving||selected.length===0}
+                        className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg disabled:opacity-50 flex items-center space-x-2"
+                    >
+                        <span>{saving?'Saving...':'Save & Continue'}</span>
+                        <i className="fas fa-arrow-right"></i>
+                    </button>
+                </div>
+            </div>
+            
+            {/* Custom Question Modal */}
+            {showCustomModal&&<CustomQuestionModal accessCode={accessCode} onClose={()=>{setShowCustomModal(false);loadQuestions();}}/>}
+        </div>
+    );
+}
+
+// Custom Question Modal Component
+function CustomQuestionModal({accessCode,onClose}){
+    const[questionText,setQuestionText]=useState('');
+    const[questionType,setQuestionType]=useState('multiple_choice');
+    const[options,setOptions]=useState([{text:'',code:'a'},{text:'',code:'b'}]);
+    const[saving,setSaving]=useState(false);
+    
+    const addOption=()=>{
+        const nextCode=String.fromCharCode(97+options.length); // a,b,c,d...
+        setOptions([...options,{text:'',code:nextCode}]);
+    };
+    
+    const removeOption=(idx)=>{
+        setOptions(options.filter((_,i)=>i!==idx));
+    };
+    
+    const updateOption=(idx,field,value)=>{
+        const updated=[...options];
+        updated[idx][field]=value;
+        setOptions(updated);
+    };
+    
+    const handleSave=async()=>{
+        if(!questionText.trim()){
+            alert('Please enter question text');
+            return;
+        }
+        
+        if(questionType==='multiple_choice'&&options.filter(o=>o.text.trim()).length<2){
+            alert('Please provide at least 2 answer options');
+            return;
+        }
+        
+        setSaving(true);
+        try{
+            await api.post(`/api/project/${accessCode}/custom-questions`,{
+                question_text:questionText,
+                question_type:questionType,
+                options:options.filter(o=>o.text.trim())
+            });
+            onClose();
+        }catch(e){
+            alert('Error creating question: '+e.message);
+        }
+        setSaving(false);
+    };
+    
+    return(
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={onClose}>
+            <div className="bg-white rounded-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+                <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-2xl font-bold">Create Custom Question</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+                        <i className="fas fa-times text-2xl"></i>
+                    </button>
+                </div>
+                
+                <div className="space-y-4">
+                    <div>
+                        <label className="block font-medium mb-2">Question Text *</label>
+                        <textarea 
+                            value={questionText}
+                            onChange={e=>setQuestionText(e.target.value)}
+                            className="w-full border rounded-lg p-3 h-24"
+                            placeholder="Enter your custom question..."
+                        />
+                    </div>
+                    
+                    <div>
+                        <label className="block font-medium mb-2">Question Type *</label>
+                        <select 
+                            value={questionType}
+                            onChange={e=>setQuestionType(e.target.value)}
+                            className="w-full border rounded-lg p-3"
+                        >
+                            <option value="multiple_choice">Multiple Choice</option>
+                            <option value="yes_no">Yes/No</option>
+                            <option value="likert_5">Likert Scale (1-5)</option>
+                            <option value="text">Text Response</option>
+                        </select>
+                    </div>
+                    
+                    {questionType==='multiple_choice'&&(
+                        <div>
+                            <label className="block font-medium mb-2">Answer Options *</label>
+                            {options.map((opt,idx)=>(
+                                <div key={idx} className="flex items-center space-x-2 mb-2">
+                                    <input 
+                                        type="text"
+                                        value={opt.text}
+                                        onChange={e=>updateOption(idx,'text',e.target.value)}
+                                        className="flex-1 border rounded-lg p-2"
+                                        placeholder={`Option ${idx+1}`}
+                                    />
+                                    {options.length>2&&(
+                                        <button onClick={()=>removeOption(idx)} className="text-red-500 hover:text-red-700">
+                                            <i className="fas fa-trash"></i>
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                            <button onClick={addOption} className="text-blue-600 hover:text-blue-700 text-sm">
+                                <i className="fas fa-plus mr-1"></i>Add Option
+                            </button>
+                        </div>
+                    )}
+                </div>
+                
+                <div className="flex justify-end space-x-3 mt-6">
+                    <button onClick={onClose} className="bg-gray-200 hover:bg-gray-300 px-6 py-2 rounded-lg font-medium">
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={handleSave} 
+                        disabled={saving}
+                        className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium disabled:opacity-50"
+                    >
+                        {saving?'Creating...':'Create Question'}
+                    </button>
+                </div>
             </div>
         </div>
     );
@@ -300,8 +454,7 @@ function App(){
     const[project,setProject]=useState(null);
     const[loading,setLoading]=useState(true);
     const[error,setError]=useState(null);
-    const[showWelcome,setShowWelcome]=useState(true);
-    const[currentStep,setCurrentStep]=useState(1);
+    const[currentStep,setCurrentStep]=useState(0); // 0 = welcome
     
     useEffect(()=>{
         if(!accessCode){setError('No project code provided');setLoading(false);return;}
@@ -318,6 +471,18 @@ function App(){
         setLoading(false);
     };
     
+    const goBack=()=>{
+        if(currentStep>0)setCurrentStep(currentStep-1);
+    };
+    
+    const goNext=()=>{
+        setCurrentStep(currentStep+1);
+    };
+    
+    const skipStep=()=>{
+        setCurrentStep(currentStep+1);
+    };
+    
     if(loading)return<div className="min-h-screen flex items-center justify-center"><i className="fas fa-spinner fa-spin text-4xl text-blue-600"></i></div>;
     if(error)return<div className="min-h-screen flex items-center justify-center"><div className="text-center"><i className="fas fa-exclamation-triangle text-red-500 text-5xl mb-4"></i><h1 className="text-2xl font-bold text-gray-900">{error}</h1></div></div>;
     
@@ -325,20 +490,26 @@ function App(){
         <div className="min-h-screen p-6">
             {/* Header */}
             <div className="max-w-6xl mx-auto mb-6">
-                <div className="bg-gradient-bg rounded-xl p-6 text-white">
-                    <h1 className="text-2xl font-bold">{project.company_name}</h1>
-                    <p className="text-blue-100">{project.project_name}</p>
-                    <p className="text-sm text-blue-200 mt-2">Status: <span className="font-bold">{project.status}</span></p>
+                <div className="bg-gradient-bg rounded-xl p-6 text-white flex items-center justify-between">
+                    <div>
+                        <h1 className="text-2xl font-bold">{project.company_name}</h1>
+                        <p className="text-blue-100">{project.project_name}</p>
+                        <p className="text-sm text-blue-200 mt-2">Status: <span className="font-bold">{project.status}</span></p>
+                    </div>
+                    {currentStep>0&&(
+                        <button onClick={()=>setCurrentStep(0)} className="bg-blue-700 hover:bg-blue-800 px-4 py-2 rounded-lg transition">
+                            <i className="fas fa-home mr-2"></i>Back to Welcome
+                        </button>
+                    )}
                 </div>
             </div>
             
             <div className="max-w-6xl mx-auto">
-                {showWelcome?(
-                    <WelcomeScreen onStart={()=>setShowWelcome(false)}/>
-                ):(
+                {currentStep===0&&<WelcomeScreen onStart={goNext}/>}
+                {currentStep>0&&(
                     <>
                         <ProgressSteps currentStep={currentStep}/>
-                        {currentStep===1&&<QuestionSelection accessCode={accessCode} onNext={()=>setCurrentStep(2)}/>}
+                        {currentStep===1&&<QuestionSelection accessCode={accessCode} onNext={goNext} onSkip={skipStep} onBack={goBack}/>}
                         {currentStep===2&&<div className="bg-white rounded-xl p-12 text-center"><p className="text-gray-600">Step 2: Schedule Videos (Coming next...)</p></div>}
                     </>
                 )}
