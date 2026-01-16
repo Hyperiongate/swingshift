@@ -325,6 +325,251 @@ def get_project_custom_questions_by_code(access_code):
     return jsonify(result)
 
 
+@app.route('/api/project/<access_code>/questions/bulk', methods=['POST'])
+def update_project_questions_by_code(access_code):
+    """
+    Bulk update questions for a project (PUBLIC - clients can select their own questions)
+    Clients select from question bank, and can add custom options per question
+    """
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    data = request.get_json()
+    
+    # Accept either 'question_ids' or 'master_question_ids'
+    raw_ids = data.get('question_ids', data.get('master_question_ids', []))
+    # Filter out None, empty strings, and non-integers
+    new_question_ids = set()
+    for qid in raw_ids:
+        if qid is not None and qid != '' and qid != 'undefined':
+            try:
+                new_question_ids.add(int(qid))
+            except (ValueError, TypeError):
+                pass  # Skip invalid IDs
+    
+    custom_options = data.get('custom_options', {})  # {question_id: {customOptions: [...]}}
+    
+    # Get existing project questions
+    existing_pqs = ProjectQuestion.query.filter_by(project_id=project.id).all()
+    existing_by_mq = {pq.master_question_id: pq for pq in existing_pqs}
+    existing_ids = set(existing_by_mq.keys())
+    
+    # Determine what to add, update, and remove
+    to_add = new_question_ids - existing_ids
+    to_remove = existing_ids - new_question_ids
+    to_update = new_question_ids & existing_ids
+    
+    # Remove questions that are no longer selected (only if no responses reference them)
+    for mq_id in to_remove:
+        pq = existing_by_mq[mq_id]
+        # Check if any responses reference this project question
+        has_responses = ResponseAnswer.query.filter_by(project_question_id=pq.id).first() is not None
+        if not has_responses:
+            db.session.delete(pq)
+        # If has responses, we leave it but it won't be in the active survey
+    
+    # Update existing questions (custom options)
+    for mq_id in to_update:
+        pq = existing_by_mq[mq_id]
+        q_custom = custom_options.get(str(mq_id), {})
+        custom_opts = q_custom.get('customOptions', [])
+        pq.custom_options_json = json.dumps(custom_opts) if custom_opts else None
+    
+    # Add new questions
+    # Get max order
+    max_order = max([pq.question_order for pq in existing_pqs], default=0)
+    for mq_id in to_add:
+        q_custom = custom_options.get(str(mq_id), {})
+        custom_opts = q_custom.get('customOptions', [])
+        max_order += 1
+        pq = ProjectQuestion(
+            project_id=project.id,
+            master_question_id=mq_id,
+            question_order=max_order,
+            is_breakout=False,
+            custom_options_json=json.dumps(custom_opts) if custom_opts else None
+        )
+        db.session.add(pq)
+    
+    db.session.commit()
+    
+    return jsonify({
+        'added': list(to_add),
+        'updated': list(to_update),
+        'removed': list(to_remove),
+        'total': len(new_question_ids)
+    }), 201
+
+
+@app.route('/api/project/<access_code>/questions/<int:question_id>', methods=['PUT'])
+def update_project_question_by_code(access_code, question_id):
+    """
+    Update a specific question's custom text/options (PUBLIC - clients can customize questions)
+    Allows clients to modify question text or response options for their specific needs
+    """
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    pq = ProjectQuestion.query.filter_by(id=question_id, project_id=project.id).first()
+    if not pq:
+        return jsonify({'error': 'Question not found'}), 404
+    
+    data = request.get_json()
+    
+    # Update custom text if provided
+    if 'custom_text' in data:
+        pq.custom_text = data['custom_text']
+    
+    # Update custom options if provided
+    if 'custom_options' in data:
+        pq.custom_options_json = json.dumps(data['custom_options']) if data['custom_options'] else None
+    
+    db.session.commit()
+    
+    return jsonify({'success': True, 'question': pq.to_dict()})
+
+
+@app.route('/api/project/<access_code>/questions/<int:question_id>', methods=['DELETE'])
+def delete_project_question_by_code(access_code, question_id):
+    """
+    Remove a question from project (PUBLIC - clients can remove questions)
+    """
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    pq = ProjectQuestion.query.filter_by(id=question_id, project_id=project.id).first()
+    if not pq:
+        return jsonify({'error': 'Question not found'}), 404
+    
+    # Check if any responses reference this question
+    has_responses = ResponseAnswer.query.filter_by(project_question_id=pq.id).first() is not None
+    if has_responses:
+        return jsonify({'error': 'Cannot delete question with responses'}), 400
+    
+    db.session.delete(pq)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+
+@app.route('/api/project/<access_code>/custom-questions', methods=['POST'])
+def add_custom_question_by_code(access_code):
+    """
+    Add a custom question to project (PUBLIC - clients can add their own questions)
+    """
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    data = request.get_json()
+    
+    # Get max question order
+    max_order = db.session.query(db.func.max(CustomQuestion.question_order)).filter_by(project_id=project.id).scalar() or 0
+    
+    # Create custom question
+    cq = CustomQuestion(
+        project_id=project.id,
+        question_text=data['question_text'],
+        question_type=data['question_type'],
+        question_order=max_order + 1,
+        likert_low_label=data.get('likert_low_label', 'Strongly Disagree' if data['question_type'] == 'likert_5' else None),
+        likert_high_label=data.get('likert_high_label', 'Strongly Agree' if data['question_type'] == 'likert_5' else None)
+    )
+    db.session.add(cq)
+    db.session.flush()
+    
+    # Add response options if provided
+    options = data.get('options', [])
+    for i, opt in enumerate(options):
+        ro = CustomResponseOption(
+            custom_question_id=cq.id,
+            option_text=opt.get('text', opt.get('option_text', '')),
+            option_code=opt.get('code', opt.get('option_code', '')),
+            numeric_value=i + 1,
+            display_order=i + 1
+        )
+        db.session.add(ro)
+    
+    db.session.commit()
+    
+    return jsonify(cq.to_dict()), 201
+
+
+@app.route('/api/project/<access_code>/custom-questions/<int:question_id>', methods=['PUT'])
+def update_custom_question_by_code(access_code, question_id):
+    """
+    Update a custom question (PUBLIC - clients can edit their custom questions)
+    """
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    cq = CustomQuestion.query.filter_by(id=question_id, project_id=project.id).first()
+    if not cq:
+        return jsonify({'error': 'Question not found'}), 404
+    
+    data = request.get_json()
+    
+    # Update fields
+    if 'question_text' in data:
+        cq.question_text = data['question_text']
+    if 'question_type' in data:
+        cq.question_type = data['question_type']
+    if 'likert_low_label' in data:
+        cq.likert_low_label = data['likert_low_label']
+    if 'likert_high_label' in data:
+        cq.likert_high_label = data['likert_high_label']
+    
+    # Update options if provided
+    if 'options' in data:
+        # Delete existing options
+        CustomResponseOption.query.filter_by(custom_question_id=cq.id).delete()
+        # Add new options
+        for i, opt in enumerate(data['options']):
+            ro = CustomResponseOption(
+                custom_question_id=cq.id,
+                option_text=opt.get('text', opt.get('option_text', '')),
+                option_code=opt.get('code', opt.get('option_code', '')),
+                numeric_value=i + 1,
+                display_order=i + 1
+            )
+            db.session.add(ro)
+    
+    db.session.commit()
+    
+    return jsonify(cq.to_dict())
+
+
+@app.route('/api/project/<access_code>/custom-questions/<int:question_id>', methods=['DELETE'])
+def delete_custom_question_by_code(access_code, question_id):
+    """
+    Delete a custom question (PUBLIC - clients can remove their custom questions)
+    """
+    project = Project.query.filter_by(access_code=access_code.upper()).first()
+    if not project:
+        return jsonify({'error': 'Project not found'}), 404
+    
+    cq = CustomQuestion.query.filter_by(id=question_id, project_id=project.id).first()
+    if not cq:
+        return jsonify({'error': 'Question not found'}), 404
+    
+    # Check if any responses reference this question
+    has_responses = ResponseAnswer.query.filter_by(custom_question_id=cq.id).first() is not None
+    if has_responses:
+        return jsonify({'error': 'Cannot delete question with responses'}), 400
+    
+    # Delete associated response options
+    CustomResponseOption.query.filter_by(custom_question_id=cq.id).delete()
+    
+    db.session.delete(cq)
+    db.session.commit()
+    
+    return jsonify({'success': True})
+
+
 # ============================================================================
 # EMPLOYEE SURVEY (Public Web UI)
 # ============================================================================
