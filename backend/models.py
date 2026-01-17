@@ -1,7 +1,12 @@
 """
 SwingShift Survey System - Database Models
 ==========================================
-Last Updated: January 15, 2026
+Last Updated: January 17, 2026
+
+CHANGES IN THIS VERSION:
+- Added MasterVideo model for Master Video Library
+- Allows Jim to maintain a permanent library of schedule videos
+- Videos can be selected per-project from the master library
 
 This file defines all database tables for the survey system:
 - MasterQuestion: The question bank (97+ questions from Shiftwork Solutions)
@@ -10,6 +15,7 @@ This file defines all database tables for the survey system:
 - ProjectQuestion: Questions selected for a specific project
 - CustomQuestion: Client-specific questions added to a project
 - ScheduleVideo: Schedule videos uploaded for a project (up to 6)
+- MasterVideo: Master library of reusable schedule videos (NEW)
 - SurveyResponse: Individual employee responses
 - ResponseAnswer: Individual answers within a response
 - ScheduleRating: Employee ratings of schedule videos
@@ -443,6 +449,48 @@ class ScheduleVideo(db.Model):
             'video_url': self.video_url,
             'duration_seconds': self.duration_seconds,
             'rating_count': self.ratings.count(),
+        }
+
+
+class MasterVideo(db.Model):
+    """
+    Master Video Library - Jim's curated collection of schedule videos.
+    These are reusable across multiple projects.
+    When Jim creates a project, he selects 6-10 videos from this library.
+    
+    Added: January 17, 2026
+    """
+    __tablename__ = 'master_videos'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    
+    # Video details
+    video_name = db.Column(db.String(200), nullable=False)  # e.g., "Dupont 12-Hour 2-2-3"
+    video_description = db.Column(db.Text, nullable=False)  # Brief description Jim writes
+    youtube_url = db.Column(db.String(500), nullable=False)  # Full YouTube URL
+    video_id = db.Column(db.String(50), nullable=False)  # Extracted video ID for embedding
+    
+    # Organization
+    tags = db.Column(db.String(500), nullable=True)  # Comma-separated: "Manufacturing,12-hour,Rotating"
+    duration_minutes = db.Column(db.Integer, nullable=True)  # Optional: video length
+    
+    # Metadata
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = db.Column(db.Boolean, default=True)
+    
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'video_name': self.video_name,
+            'video_description': self.video_description,
+            'youtube_url': self.youtube_url,
+            'video_id': self.video_id,
+            'tags': self.tags,
+            'duration_minutes': self.duration_minutes,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+            'is_active': self.is_active
         }
 
 
