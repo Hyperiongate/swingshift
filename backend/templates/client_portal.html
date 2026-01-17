@@ -208,26 +208,44 @@ function ProgressSteps({currentStep}){
 function QuestionSelection({accessCode,onNext,onSkip,onBack}){
     const[questions,setQuestions]=useState([]);
     const[selected,setSelected]=useState([]);
+    const[customQuestions,setCustomQuestions]=useState([]);
     const[loading,setLoading]=useState(true);
     const[saving,setSaving]=useState(false);
     const[showCustomModal,setShowCustomModal]=useState(false);
+    const[expandedCategories,setExpandedCategories]=useState({});
+    const[customizingQuestion,setCustomizingQuestion]=useState(null);
     
     useEffect(()=>{loadQuestions();},[]);
     
     const loadQuestions=async()=>{
         try{
-            const [allQs,selectedQs]=await Promise.all([
+            const [allQs,selectedQs,customQs]=await Promise.all([
                 api.get('/api/questions'),
-                api.get(`/api/project/${accessCode}/questions`)
+                api.get(`/api/project/${accessCode}/questions`),
+                api.get(`/api/project/${accessCode}/custom-questions`)
             ]);
             setQuestions(allQs);
             setSelected(selectedQs.map(q=>q.question_id||q.master_question_id));
+            setCustomQuestions(customQs);
         }catch(e){console.error(e);}
         setLoading(false);
     };
     
-    const toggleQuestion=(qid)=>{
-        setSelected(prev=>prev.includes(qid)?prev.filter(id=>id!==qid):[...prev,qid]);
+    const toggleCategory=(cat)=>{
+        setExpandedCategories(prev=>({...prev,[cat]:!prev[cat]}));
+    };
+    
+    const toggleQuestion=(q)=>{
+        const qid=q.id;
+        const isSelected=selected.includes(qid);
+        
+        // Check if this is Q1, Q2, or Q3 and needs customization
+        if(!isSelected && (q.question_number===1||q.question_number===2||q.question_number===3)){
+            setCustomizingQuestion(q);
+            return;
+        }
+        
+        setSelected(prev=>isSelected?prev.filter(id=>id!==qid):[...prev,qid]);
     };
     
     const handleSave=async()=>{
@@ -249,45 +267,106 @@ function QuestionSelection({accessCode,onNext,onSkip,onBack}){
         return acc;
     },{});
     
+    const canAddCustom=customQuestions.length<3;
+    
     return(
         <div className="fade-in">
             <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
-                <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center justify-between mb-6">
                     <div>
                         <h2 className="text-2xl font-bold">Step 1: Select Survey Questions</h2>
-                        <p className="text-gray-600">Choose questions from our proven question bank. Selected: <span className="font-bold text-blue-600">{selected.length}</span> questions</p>
+                        <p className="text-gray-600">Choose questions from our proven question bank. Selected: <span className="font-bold text-blue-600">{selected.length}</span> standard + <span className="font-bold text-green-600">{customQuestions.length}</span> custom questions</p>
                     </div>
-                    <button 
-                        onClick={()=>setShowCustomModal(true)}
-                        className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg flex items-center space-x-2"
-                    >
-                        <i className="fas fa-plus"></i>
-                        <span>Create Custom Question</span>
-                    </button>
                 </div>
                 
-                {Object.entries(byCategory).map(([cat,qs])=>(
-                    <div key={cat} className="mb-6">
-                        <h3 className="font-bold text-lg mb-3 text-blue-900">{cat} ({qs.length} questions)</h3>
+                {/* Custom Questions Section */}
+                {customQuestions.length>0&&(
+                    <div className="mb-6 bg-green-50 border-2 border-green-200 rounded-lg p-4">
+                        <h3 className="font-bold text-lg mb-3 text-green-900 flex items-center">
+                            <i className="fas fa-star mr-2"></i>
+                            Your Custom Questions ({customQuestions.length}/3)
+                        </h3>
                         <div className="space-y-2">
-                            {qs.map(q=>(
-                                <label key={q.id} className="flex items-start p-4 border rounded-lg hover:bg-blue-50 cursor-pointer transition">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selected.includes(q.id)}
-                                        onChange={()=>toggleQuestion(q.id)}
-                                        className="mt-1 mr-3 w-5 h-5"
-                                    />
-                                    <div className="flex-1">
-                                        <span className="text-gray-500 text-sm">Q{q.question_number}</span>
-                                        <p className="text-gray-900">{q.question_text}</p>
-                                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{q.question_type}</span>
-                                    </div>
-                                </label>
+                            {customQuestions.map(cq=>(
+                                <div key={cq.id} className="bg-white p-4 rounded-lg border border-green-200">
+                                    <p className="text-gray-900 font-medium">{cq.question_text}</p>
+                                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{cq.question_type}</span>
+                                </div>
                             ))}
                         </div>
                     </div>
-                ))}
+                )}
+                
+                {/* Add Custom Question Button */}
+                <div className="mb-6">
+                    <button 
+                        onClick={()=>setShowCustomModal(true)}
+                        disabled={!canAddCustom}
+                        className={`w-full border-2 border-dashed rounded-lg py-4 font-medium transition ${
+                            canAddCustom?'border-green-400 text-green-600 hover:bg-green-50':'border-gray-300 text-gray-400 cursor-not-allowed'
+                        }`}
+                    >
+                        <i className="fas fa-plus mr-2"></i>
+                        {canAddCustom?'Add Custom Open-Ended Question':'Maximum 3 Custom Questions Reached'}
+                    </button>
+                    {canAddCustom&&<p className="text-sm text-gray-500 mt-2 text-center">You can add up to {3-customQuestions.length} more custom question{3-customQuestions.length!==1?'s':''}</p>}
+                </div>
+                
+                {/* Standard Questions by Category */}
+                <div className="border-t pt-6">
+                    <h3 className="font-bold text-lg mb-4 text-gray-900">Standard Question Bank</h3>
+                    {Object.entries(byCategory).map(([cat,qs])=>{
+                        const isExpanded=expandedCategories[cat];
+                        const selectedInCategory=qs.filter(q=>selected.includes(q.id)).length;
+                        
+                        return(
+                            <div key={cat} className="mb-4 border rounded-lg overflow-hidden">
+                                <button 
+                                    onClick={()=>toggleCategory(cat)}
+                                    className="w-full bg-gray-50 hover:bg-gray-100 p-4 flex items-center justify-between transition"
+                                >
+                                    <div className="flex items-center space-x-3">
+                                        <i className={`fas fa-chevron-${isExpanded?'down':'right'} text-gray-400`}></i>
+                                        <span className="font-bold text-gray-900">{cat}</span>
+                                        <span className="text-sm text-gray-500">({qs.length} questions)</span>
+                                        {selectedInCategory>0&&(
+                                            <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs font-medium">
+                                                {selectedInCategory} selected
+                                            </span>
+                                        )}
+                                    </div>
+                                </button>
+                                
+                                {isExpanded&&(
+                                    <div className="p-4 space-y-2">
+                                        {qs.map(q=>(
+                                            <label key={q.id} className="flex items-start p-3 border rounded-lg hover:bg-blue-50 cursor-pointer transition">
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={selected.includes(q.id)}
+                                                    onChange={()=>toggleQuestion(q)}
+                                                    className="mt-1 mr-3 w-5 h-5"
+                                                />
+                                                <div className="flex-1">
+                                                    <div className="flex items-center space-x-2 mb-1">
+                                                        <span className="text-gray-500 text-xs bg-gray-100 px-2 py-1 rounded">Q{q.question_number}</span>
+                                                        <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">{q.question_type}</span>
+                                                        {(q.question_number===1||q.question_number===2||q.question_number===3)&&(
+                                                            <span className="text-xs text-orange-600 bg-orange-100 px-2 py-1 rounded">
+                                                                <i className="fas fa-edit mr-1"></i>Requires customization
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-gray-900">{q.question_text}</p>
+                                                </div>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
+                </div>
             </div>
             
             <div className="flex justify-between items-center">
@@ -317,8 +396,139 @@ function QuestionSelection({accessCode,onNext,onSkip,onBack}){
                 </div>
             </div>
             
+            {/* Customization Modal for Q1/Q2/Q3 */}
+            {customizingQuestion&&<QuestionCustomizationModal question={customizingQuestion} accessCode={accessCode} onClose={(saved)=>{if(saved)setSelected(prev=>[...prev,customizingQuestion.id]);setCustomizingQuestion(null);}}/>}
+            
             {/* Custom Question Modal */}
             {showCustomModal&&<CustomQuestionModal accessCode={accessCode} onClose={()=>{setShowCustomModal(false);loadQuestions();}}/>}
+        </div>
+    );
+}
+
+// Question Customization Modal (for Q1, Q2, Q3)
+function QuestionCustomizationModal({question,accessCode,onClose}){
+    const[options,setOptions]=useState([
+        {text:'',code:'a'},{text:'',code:'b'},{text:'',code:'c'}
+    ]);
+    const[saving,setSaving]=useState(false);
+    
+    const getPromptText=()=>{
+        if(question.question_number===1)return{
+            title:'Customize Department Names',
+            description:'Enter the department names for your facility. These will replace the generic options (A, B, C, etc.)',
+            placeholder:'e.g., Production, Quality Control, Maintenance'
+        };
+        if(question.question_number===2)return{
+            title:'Customize Job Titles',
+            description:'Enter the job titles used in your facility.',
+            placeholder:'e.g., Operator, Technician, Supervisor'
+        };
+        if(question.question_number===3)return{
+            title:'Customize Crew Names',  
+            description:'Enter the crew or shift names used in your facility.',
+            placeholder:'e.g., A Crew, B Crew, Day Shift'
+        };
+    };
+    
+    const promptText=getPromptText();
+    
+    const addOption=()=>{
+        const nextCode=String.fromCharCode(97+options.length);
+        setOptions([...options,{text:'',code:nextCode}]);
+    };
+    
+    const removeOption=(idx)=>{
+        if(options.length>2)setOptions(options.filter((_,i)=>i!==idx));
+    };
+    
+    const updateOption=(idx,value)=>{
+        const updated=[...options];
+        updated[idx].text=value;
+        setOptions(updated);
+    };
+    
+    const handleSave=async()=>{
+        const filledOptions=options.filter(o=>o.text.trim());
+        if(filledOptions.length<2){
+            alert('Please provide at least 2 options');
+            return;
+        }
+        
+        setSaving(true);
+        try{
+            // First select the question
+            await api.post(`/api/project/${accessCode}/questions/bulk`,{
+                question_ids:[question.id],
+                custom_options:{
+                    [question.id]:{customOptions:filledOptions}
+                }
+            });
+            onClose(true);
+        }catch(e){
+            alert('Error saving: '+e.message);
+        }
+        setSaving(false);
+    };
+    
+    return(
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl max-w-2xl w-full p-6 max-h-[90vh] overflow-y-auto">
+                <div className="mb-6">
+                    <div className="bg-orange-50 border-l-4 border-orange-500 p-4 mb-4">
+                        <div className="flex items-start">
+                            <i className="fas fa-exclamation-triangle text-orange-500 mt-1 mr-3"></i>
+                            <div>
+                                <h3 className="font-bold text-orange-900">This Question Requires Customization</h3>
+                                <p className="text-sm text-orange-800 mt-1">Question {question.question_number} needs to be tailored to your facility</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <h2 className="text-2xl font-bold mb-2">{promptText.title}</h2>
+                    <p className="text-gray-600 mb-4">{promptText.description}</p>
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                        <p className="font-medium text-gray-900">Original Question:</p>
+                        <p className="text-gray-700 italic">"{question.question_text}"</p>
+                    </div>
+                </div>
+                
+                <div className="space-y-3 mb-6">
+                    <label className="block font-medium">Your Options: *</label>
+                    {options.map((opt,idx)=>(
+                        <div key={idx} className="flex items-center space-x-2">
+                            <span className="text-gray-500 font-medium w-8">{opt.code.toUpperCase()}.</span>
+                            <input 
+                                type="text"
+                                value={opt.text}
+                                onChange={e=>updateOption(idx,e.target.value)}
+                                className="flex-1 border rounded-lg p-3"
+                                placeholder={promptText.placeholder}
+                            />
+                            {options.length>2&&(
+                                <button onClick={()=>removeOption(idx)} className="text-red-500 hover:text-red-700 p-2">
+                                    <i className="fas fa-trash"></i>
+                                </button>
+                            )}
+                        </div>
+                    ))}
+                    <button onClick={addOption} className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+                        <i className="fas fa-plus mr-1"></i>Add Another Option
+                    </button>
+                </div>
+                
+                <div className="flex justify-end space-x-3">
+                    <button onClick={()=>onClose(false)} className="bg-gray-200 hover:bg-gray-300 px-6 py-3 rounded-lg font-medium">
+                        Cancel
+                    </button>
+                    <button 
+                        onClick={handleSave} 
+                        disabled={saving}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium disabled:opacity-50"
+                    >
+                        {saving?'Saving...':'Save & Add Question'}
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
