@@ -533,6 +533,7 @@ function VideoModal({video,onClose,onSave}){
     const[url,setUrl]=useState(video?.youtube_url||'');
     const[tags,setTags]=useState(video?.tags||'');
     const[duration,setDuration]=useState(video?.duration_minutes||'');
+    const[isIntroduction,setIsIntroduction]=useState(video?.is_introduction||false);
     const[saving,setSaving]=useState(false);
     
     const handleSubmit=async()=>{
@@ -546,7 +547,8 @@ function VideoModal({video,onClose,onSave}){
             video_description:description.trim(),
             youtube_url:url.trim(),
             tags:tags.trim(),
-            duration_minutes:duration?parseInt(duration):null
+            duration_minutes:duration?parseInt(duration):null,
+            is_introduction:isIntroduction
         });
         setSaving(false);
     };
@@ -588,6 +590,16 @@ function VideoModal({video,onClose,onSave}){
                         <label className="block text-sm font-medium text-gray-700 mb-1">Duration (minutes)</label>
                         <input type="number" value={duration} onChange={e=>setDuration(e.target.value)} placeholder="5" className="w-full px-4 py-2 border rounded-lg"/>
                     </div>
+                </div>
+                
+                <div className="border-t pt-4">
+                    <label className="flex items-center space-x-3 cursor-pointer">
+                        <input type="checkbox" checked={isIntroduction} onChange={e=>setIsIntroduction(e.target.checked)} className="w-5 h-5 text-blue-600"/>
+                        <div>
+                            <span className="font-medium text-gray-900">This is an introduction video</span>
+                            <p className="text-sm text-gray-600">Introduction videos are shown first and don't require employee ratings</p>
+                        </div>
+                    </label>
                 </div>
             </div>
             
