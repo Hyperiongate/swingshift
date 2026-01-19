@@ -87,7 +87,7 @@ FEATURES:
 
             const loadSurvey = async () => {
                 try {
-                    // Load project details
+                    // Load project details (PUBLIC endpoint)
                     const proj = await api.get(`/api/project/${surveyCode}`);
                     if (proj.status !== 'active') {
                         setError('This survey is not currently active.');
@@ -96,19 +96,19 @@ FEATURES:
                     }
                     setProject(proj);
                     
-                    // Load videos
+                    // Load videos (PUBLIC endpoint)
                     const vids = await api.get(`/api/project/${surveyCode}/schedules`);
                     setVideos(vids || []);
                     
-                    // Load questions
+                    // Load questions (PUBLIC endpoints - use access_code not project_id)
                     const [projQuestions, customQs] = await Promise.all([
-                        api.get(`/api/projects/${proj.id}/questions`),
-                        api.get(`/api/projects/${proj.id}/custom-questions`).catch(() => [])
+                        api.get(`/api/project/${surveyCode}/questions`),
+                        api.get(`/api/project/${surveyCode}/custom-questions`).catch(() => [])
                     ]);
                     setQuestions(projQuestions || []);
                     setCustomQuestions(customQs || []);
                     
-                    // Create response record
+                    // Create response record (PUBLIC endpoint)
                     const response = await api.post(`/api/projects/${proj.id}/responses`, {});
                     setResponseId(response.id);
                     
