@@ -1,22 +1,22 @@
 <!DOCTYPE html>
 <!--
-SwingShift Survey System - Employee Survey Interface v2
-========================================================
+SwingShift Survey System - Employee Survey Interface v2 (COMPLETE)
+===================================================================
 Last Updated: January 19, 2026
 
-UPDATED FLOW:
+COMPLETE INTEGRATED FLOW:
 1. Welcome Screen - Introduction
-2. Watch Videos - View 6-10 schedule videos from master library (NEW)
-3. Answer Questions - Survey questions
+2. Watch Videos - View 6-10 schedule videos from master library 
+3. Answer Questions - Full survey with all questions
 4. Complete - Thank you page
 
 FEATURES:
 - Clean, distraction-free survey experience
 - Video viewing step with embedded YouTube players
+- Full question interface with all question types
 - Mobile-responsive design
-- Progress bar showing completion
-- One question at a time
-- Auto-save answers
+- Progress tracking
+- Auto-save answers via API
 - Anonymous participation
 -->
 <html lang="en">
@@ -32,14 +32,14 @@ FEATURES:
     <style>
         .fade-in { animation: fadeIn 0.4s ease-in; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .pulse { animation: pulse 2s infinite; }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
         body { background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); min-height: 100vh; }
-        .option-btn { transition: all 0.2s ease; }
-        .option-btn:hover { transform: translateX(4px); }
+        .option-btn { transition: all 0.2s ease; cursor: pointer; }
+        .option-btn:hover { transform: translateX(4px); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .option-btn.selected { background: #3b82f6; color: white; border-color: #3b82f6; }
         .video-card { transition: all 0.3s ease; }
         .video-card:hover { transform: translateY(-4px); box-shadow: 0 10px 20px rgba(0,0,0,0.2); }
+        .progress-bar { height: 8px; background: rgba(255,255,255,0.2); border-radius: 4px; overflow: hidden; }
+        .progress-fill { height: 100%; background: linear-gradient(90deg, #10b981, #3b82f6); transition: width 0.3s ease; }
     </style>
 </head>
 <body>
@@ -58,7 +58,7 @@ FEATURES:
         const api = {
             async req(e, o = {}) {
                 const r = await fetch(e, { ...o, headers: { 'Content-Type': 'application/json', ...o.headers } });
-                if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Failed');
+                if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || 'Request failed');
                 return r.json();
             },
             get: e => api.req(e),
@@ -68,14 +68,17 @@ FEATURES:
         // Main App Component
         function App() {
             const [surveyCode] = useState(getSurveyCode());
-            const [step, setStep] = useState('loading'); // loading, welcome, videos, questions, complete
+            const [step, setStep] = useState('loading');
             const [project, setProject] = useState(null);
             const [videos, setVideos] = useState([]);
+            const [questions, setQuestions] = useState([]);
+            const [customQuestions, setCustomQuestions] = useState([]);
             const [error, setError] = useState(null);
+            const [responseId, setResponseId] = useState(null);
 
             useEffect(() => {
                 if (!surveyCode) {
-                    setError('No survey code provided');
+                    setError('No survey code provided in URL');
                     setStep('error');
                     return;
                 }
@@ -84,16 +87,35 @@ FEATURES:
 
             const loadSurvey = async () => {
                 try {
+                    // Load project details
                     const proj = await api.get(`/api/project/${surveyCode}`);
+                    if (proj.status !== 'active') {
+                        setError('This survey is not currently active.');
+                        setStep('error');
+                        return;
+                    }
                     setProject(proj);
                     
-                    // Load videos for this project
+                    // Load videos
                     const vids = await api.get(`/api/project/${surveyCode}/schedules`);
                     setVideos(vids || []);
                     
+                    // Load questions
+                    const [projQuestions, customQs] = await Promise.all([
+                        api.get(`/api/projects/${proj.id}/questions`),
+                        api.get(`/api/projects/${proj.id}/custom-questions`).catch(() => [])
+                    ]);
+                    setQuestions(projQuestions || []);
+                    setCustomQuestions(customQs || []);
+                    
+                    // Create response record
+                    const response = await api.post(`/api/projects/${proj.id}/responses`, {});
+                    setResponseId(response.id);
+                    
                     setStep('welcome');
                 } catch (e) {
-                    setError('Survey not found. Please check your access code.');
+                    console.error('Load error:', e);
+                    setError(e.message || 'Survey not found. Please check your access code.');
                     setStep('error');
                 }
             };
@@ -107,15 +129,28 @@ FEATURES:
             }
 
             if (step === 'welcome') {
-                return <WelcomeScreen project={project} onStart={() => setStep(videos.length > 0 ? 'videos' : 'questions')} />;
+                return <WelcomeScreen 
+                    project={project} 
+                    onStart={() => setStep(videos.length > 0 ? 'videos' : 'questions')} 
+                />;
             }
 
             if (step === 'videos') {
-                return <VideoScreen project={project} videos={videos} onContinue={() => setStep('questions')} />;
+                return <VideoScreen 
+                    project={project} 
+                    videos={videos} 
+                    onContinue={() => setStep('questions')} 
+                />;
             }
 
             if (step === 'questions') {
-                return <QuestionScreen project={project} surveyCode={surveyCode} onComplete={() => setStep('complete')} />;
+                return <QuestionScreen 
+                    project={project}
+                    questions={questions}
+                    customQuestions={customQuestions}
+                    responseId={responseId}
+                    onComplete={() => setStep('complete')} 
+                />;
             }
 
             if (step === 'complete') {
@@ -141,11 +176,11 @@ FEATURES:
         function ErrorScreen({ message }) {
             return (
                 <div className="min-h-screen flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
+                    <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center fade-in">
                         <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
                             <i className="fas fa-exclamation-triangle text-red-600 text-2xl"></i>
                         </div>
-                        <h1 className="text-2xl font-bold text-gray-900 mb-2">Survey Not Found</h1>
+                        <h1 className="text-2xl font-bold text-gray-900 mb-2">Survey Not Available</h1>
                         <p className="text-gray-600">{message}</p>
                     </div>
                 </div>
@@ -179,7 +214,7 @@ FEATURES:
                         <div className="space-y-4 mb-8">
                             <div className="flex items-start space-x-3">
                                 <div className="flex-shrink-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center">
-                                    <i className="fas fa-check"></i>
+                                    <i className="fas fa-video"></i>
                                 </div>
                                 <div>
                                     <h3 className="font-semibold text-gray-900">Watch Schedule Videos</h3>
@@ -189,11 +224,11 @@ FEATURES:
 
                             <div className="flex items-start space-x-3">
                                 <div className="flex-shrink-0 w-8 h-8 bg-green-100 text-green-600 rounded-full flex items-center justify-center">
-                                    <i className="fas fa-check"></i>
+                                    <i className="fas fa-question-circle"></i>
                                 </div>
                                 <div>
                                     <h3 className="font-semibold text-gray-900">Answer Questions</h3>
-                                    <p className="text-gray-600 text-sm">Share your preferences and priorities</p>
+                                    <p className="text-gray-600 text-sm">Share your preferences and priorities about work schedules</p>
                                 </div>
                             </div>
 
@@ -217,6 +252,7 @@ FEATURES:
                         </button>
 
                         <p className="text-center text-gray-500 text-sm mt-4">
+                            <i className="fas fa-clock mr-1"></i>
                             Estimated time: 10-15 minutes
                         </p>
                     </div>
@@ -224,7 +260,21 @@ FEATURES:
             );
         }
 
-        // Video Screen (NEW)
+        // Helper function to extract YouTube video ID from URL
+        const extractVideoId = (url) => {
+            if (!url) return null;
+            const patterns = [
+                /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?/]+)/,
+                /youtube\.com\/v\/([^&?/]+)/
+            ];
+            for (const pattern of patterns) {
+                const match = url.match(pattern);
+                if (match) return match[1];
+            }
+            return null;
+        };
+
+        // Video Screen
         function VideoScreen({ project, videos, onContinue }) {
             return (
                 <div className="min-h-screen py-8 px-4">
@@ -252,17 +302,25 @@ FEATURES:
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                                    {videos.map((video, index) => (
+                                    {videos.map((video, index) => {
+                                        const videoId = extractVideoId(video.video_url);
+                                        return (
                                         <div key={video.id} className="video-card bg-white border-2 border-gray-200 rounded-xl overflow-hidden">
                                             <div className="aspect-video bg-gray-900">
-                                                <iframe
-                                                    src={`https://www.youtube.com/embed/${video.video_id}`}
-                                                    title={video.schedule_name}
-                                                    frameBorder="0"
-                                                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                                    allowFullScreen
-                                                    className="w-full h-full"
-                                                ></iframe>
+                                                {videoId ? (
+                                                    <iframe
+                                                        src={`https://www.youtube.com/embed/${videoId}`}
+                                                        title={video.schedule_name}
+                                                        frameBorder="0"
+                                                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                        allowFullScreen
+                                                        className="w-full h-full"
+                                                    ></iframe>
+                                                ) : (
+                                                    <div className="w-full h-full flex items-center justify-center text-white">
+                                                        <i className="fas fa-video-slash text-4xl"></i>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="p-4">
                                                 <div className="flex items-start justify-between mb-2">
@@ -276,7 +334,7 @@ FEATURES:
                                                 )}
                                             </div>
                                         </div>
-                                    ))}
+                                    );})}
                                 </div>
                             )}
 
@@ -293,6 +351,7 @@ FEATURES:
 
                         <div className="text-center">
                             <p className="text-white text-sm opacity-75">
+                                <i className="fas fa-video mr-1"></i>
                                 Step 1 of 3: Review Schedule Videos
                             </p>
                         </div>
@@ -301,19 +360,192 @@ FEATURES:
             );
         }
 
-        // Question Screen (Simplified - already exists in your code)
-        function QuestionScreen({ project, surveyCode, onComplete }) {
+        // Question Screen (FULL IMPLEMENTATION)
+        function QuestionScreen({ project, questions, customQuestions, responseId, onComplete }) {
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [answers, setAnswers] = useState({});
+            const [masterQuestions, setMasterQuestions] = useState({});
+            const [loading, setLoading] = useState(true);
+
+            const allQuestions = [...questions, ...customQuestions];
+            const totalQuestions = allQuestions.length;
+            const progress = ((currentIndex + 1) / totalQuestions) * 100;
+
+            useEffect(() => {
+                loadMasterQuestions();
+            }, []);
+
+            const loadMasterQuestions = async () => {
+                try {
+                    const allQ = await api.get('/api/questions');
+                    const qMap = {};
+                    allQ.forEach(q => qMap[q.id] = q);
+                    setMasterQuestions(qMap);
+                } catch (e) {
+                    console.error('Failed to load questions:', e);
+                }
+                setLoading(false);
+            };
+
+            const saveAnswer = async (questionId, answer, isCustom = false) => {
+                const newAnswers = { ...answers, [questionId]: answer };
+                setAnswers(newAnswers);
+
+                // Auto-save to API
+                try {
+                    await api.post(`/api/responses/${responseId}/answers`, {
+                        question_id: isCustom ? null : questionId,
+                        custom_question_id: isCustom ? questionId : null,
+                        answer_value: answer
+                    });
+                } catch (e) {
+                    console.error('Failed to save answer:', e);
+                }
+            };
+
+            const handleAnswer = (answer) => {
+                const current = allQuestions[currentIndex];
+                const isCustom = current.question_text !== undefined; // Custom questions have question_text, project questions have question_id
+                const qId = isCustom ? current.id : current.question_id;
+                
+                saveAnswer(qId, answer, isCustom);
+
+                // Auto-advance after short delay
+                setTimeout(() => {
+                    if (currentIndex < totalQuestions - 1) {
+                        setCurrentIndex(currentIndex + 1);
+                    } else {
+                        completeAndSubmit();
+                    }
+                }, 300);
+            };
+
+            const completeAndSubmit = async () => {
+                try {
+                    await api.post(`/api/responses/${responseId}/complete`, {});
+                    onComplete();
+                } catch (e) {
+                    console.error('Failed to complete survey:', e);
+                    alert('Error completing survey. Please try again.');
+                }
+            };
+
+            const goNext = () => {
+                if (currentIndex < totalQuestions - 1) {
+                    setCurrentIndex(currentIndex + 1);
+                }
+            };
+
+            const goPrev = () => {
+                if (currentIndex > 0) {
+                    setCurrentIndex(currentIndex - 1);
+                }
+            };
+
+            if (loading) {
+                return <LoadingScreen />;
+            }
+
+            if (totalQuestions === 0) {
+                return (
+                    <div className="min-h-screen flex items-center justify-center p-4">
+                        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
+                            <i className="fas fa-clipboard-list text-gray-300 text-6xl mb-4"></i>
+                            <h2 className="text-2xl font-bold text-gray-900 mb-2">No Questions Available</h2>
+                            <p className="text-gray-600 mb-6">This survey hasn't been configured with questions yet.</p>
+                            <button onClick={onComplete} className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700">
+                                Exit Survey
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            const currentQ = allQuestions[currentIndex];
+            const isCustom = currentQ.question_text !== undefined;
+            const masterQ = isCustom ? null : masterQuestions[currentQ.question_id];
+            
+            const questionText = isCustom ? currentQ.question_text : masterQ?.question_text || 'Loading...';
+            const options = isCustom 
+                ? (currentQ.options || [])
+                : (currentQ.custom_options && currentQ.custom_options.length > 0 
+                    ? currentQ.custom_options 
+                    : (masterQ?.options || []));
+
+            const qId = isCustom ? currentQ.id : currentQ.question_id;
+            const currentAnswer = answers[qId];
+
             return (
-                <div className="min-h-screen flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full text-center">
-                        <h1 className="text-2xl font-bold text-gray-900 mb-4">Survey Questions</h1>
-                        <p className="text-gray-600 mb-6">Question interface would go here (existing code)</p>
-                        <button
-                            onClick={onComplete}
-                            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
-                        >
-                            Complete Survey
-                        </button>
+                <div className="min-h-screen py-8 px-4">
+                    <div className="max-w-3xl mx-auto">
+                        {/* Progress Bar */}
+                        <div className="bg-white rounded-t-2xl shadow-2xl px-8 pt-6 pb-4">
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="text-sm text-gray-600">Question {currentIndex + 1} of {totalQuestions}</span>
+                                <span className="text-sm font-medium text-blue-600">{Math.round(progress)}% Complete</span>
+                            </div>
+                            <div className="progress-bar">
+                                <div className="progress-fill" style={{ width: `${progress}%` }}></div>
+                            </div>
+                        </div>
+
+                        {/* Question Card */}
+                        <div className="bg-white shadow-2xl px-8 py-8 fade-in">
+                            <div className="mb-6">
+                                {isCustom && (
+                                    <span className="inline-block bg-green-100 text-green-700 text-xs px-3 py-1 rounded-full mb-3">
+                                        <i className="fas fa-star mr-1"></i>Custom Question
+                                    </span>
+                                )}
+                                <h2 className="text-2xl font-bold text-gray-900">{questionText}</h2>
+                            </div>
+
+                            <div className="space-y-3">
+                                {options.map((opt, index) => {
+                                    const optCode = opt.code || opt.option_code || String.fromCharCode(65 + index);
+                                    const optText = opt.text || opt.option_text;
+                                    const isSelected = currentAnswer === optText || currentAnswer === optCode;
+                                    
+                                    return (
+                                        <button
+                                            key={index}
+                                            onClick={() => handleAnswer(optText)}
+                                            className={`option-btn w-full text-left p-4 border-2 rounded-lg ${isSelected ? 'selected' : 'bg-white border-gray-200 hover:border-gray-300'}`}
+                                        >
+                                            <span className="font-bold mr-3">{optCode}.</span>
+                                            <span>{optText}</span>
+                                            {isSelected && <i className="fas fa-check-circle float-right text-white"></i>}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Navigation */}
+                        <div className="bg-white rounded-b-2xl shadow-2xl px-8 py-6 flex justify-between">
+                            <button
+                                onClick={goPrev}
+                                disabled={currentIndex === 0}
+                                className="px-6 py-3 text-gray-700 font-medium rounded-lg hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed"
+                            >
+                                <i className="fas fa-arrow-left mr-2"></i>Previous
+                            </button>
+                            
+                            <button
+                                onClick={currentIndex === totalQuestions - 1 ? completeAndSubmit : goNext}
+                                className="px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700"
+                            >
+                                {currentIndex === totalQuestions - 1 ? 'Complete Survey' : 'Next'}
+                                <i className={`fas fa-${currentIndex === totalQuestions - 1 ? 'check' : 'arrow-right'} ml-2`}></i>
+                            </button>
+                        </div>
+
+                        <div className="text-center mt-6">
+                            <p className="text-white text-sm opacity-75">
+                                <i className="fas fa-clipboard-list mr-1"></i>
+                                Step 2 of 3: Answer Survey Questions
+                            </p>
+                        </div>
                     </div>
                 </div>
             );
@@ -333,11 +565,18 @@ FEATURES:
                         </p>
                         <div className="bg-blue-50 border-l-4 border-blue-500 p-6 mb-6">
                             <p className="text-blue-800">
+                                <i className="fas fa-users mr-2"></i>
                                 Your feedback will help us develop shift schedules that work better for everyone. 
                                 Results will be analyzed and shared with your team soon.
                             </p>
                         </div>
-                        <p className="text-gray-500 text-sm">You can close this window now.</p>
+                        <div className="text-center">
+                            <p className="text-gray-500 text-sm mb-2">
+                                <i className="fas fa-check mr-1"></i>
+                                Step 3 of 3: Complete
+                            </p>
+                            <p className="text-gray-400 text-sm">You can close this window now.</p>
+                        </div>
                     </div>
                 </div>
             );
