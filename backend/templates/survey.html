@@ -100,17 +100,16 @@ FEATURES:
                     const vids = await api.get(`/api/project/${surveyCode}/schedules`);
                     setVideos(vids || []);
                     
-                    // Load questions (PUBLIC endpoints - use access_code not project_id)
-                    const [projQuestions, customQs] = await Promise.all([
-                        api.get(`/api/project/${surveyCode}/questions`),
-                        api.get(`/api/project/${surveyCode}/custom-questions`).catch(() => [])
-                    ]);
-                    setQuestions(projQuestions || []);
-                    setCustomQuestions(customQs || []);
+                    // Get survey data with questions (PUBLIC endpoint from backend)
+                    const surveyData = await api.get(`/api/survey/${surveyCode}`);
                     
-                    // Create response record (PUBLIC endpoint)
-                    const response = await api.post(`/api/projects/${proj.id}/responses`, {});
-                    setResponseId(response.id);
+                    // Parse questions from survey data
+                    const allQuestions = surveyData.questions || [];
+                    const projQuestions = allQuestions.filter(q => !q.question_text); // Project questions don't have question_text
+                    const customQs = allQuestions.filter(q => q.question_text); // Custom questions have question_text
+                    
+                    setQuestions(projQuestions);
+                    setCustomQuestions(customQs);
                     
                     setStep('welcome');
                 } catch (e) {
@@ -361,42 +360,54 @@ FEATURES:
         }
 
         // Question Screen (FULL IMPLEMENTATION)
-        function QuestionScreen({ project, questions, customQuestions, responseId, onComplete }) {
+        function QuestionScreen({ project, questions, customQuestions, responseId: initialResponseId, onComplete }) {
             const [currentIndex, setCurrentIndex] = useState(0);
             const [answers, setAnswers] = useState({});
             const [masterQuestions, setMasterQuestions] = useState({});
             const [loading, setLoading] = useState(true);
+            const [responseId, setResponseId] = useState(initialResponseId);
+            const [responseCode, setResponseCode] = useState(null);
 
             const allQuestions = [...questions, ...customQuestions];
             const totalQuestions = allQuestions.length;
             const progress = ((currentIndex + 1) / totalQuestions) * 100;
 
             useEffect(() => {
-                loadMasterQuestions();
+                initializeSurvey();
             }, []);
 
-            const loadMasterQuestions = async () => {
+            const initializeSurvey = async () => {
                 try {
+                    // Load master questions for reference
                     const allQ = await api.get('/api/questions');
                     const qMap = {};
                     allQ.forEach(q => qMap[q.id] = q);
                     setMasterQuestions(qMap);
+                    
+                    // Create response session using backend's actual endpoint
+                    const surveyCode = getSurveyCode();
+                    const response = await api.post(`/api/survey/${surveyCode}/start`, {});
+                    setResponseCode(response.response_code);
                 } catch (e) {
-                    console.error('Failed to load questions:', e);
+                    console.error('Failed to initialize:', e);
                 }
                 setLoading(false);
             };
 
             const saveAnswer = async (questionId, answer, isCustom = false) => {
+                if (!responseCode) return; // Can't save without response code
+                
                 const newAnswers = { ...answers, [questionId]: answer };
                 setAnswers(newAnswers);
 
-                // Auto-save to API
+                // Auto-save to API using backend's actual endpoint
                 try {
-                    await api.post(`/api/responses/${responseId}/answers`, {
-                        question_id: isCustom ? null : questionId,
+                    const surveyCode = getSurveyCode();
+                    await api.post(`/api/survey/${surveyCode}/answer`, {
+                        response_code: responseCode,
+                        project_question_id: isCustom ? null : questionId,
                         custom_question_id: isCustom ? questionId : null,
-                        answer_value: answer
+                        answer_text: answer
                     });
                 } catch (e) {
                     console.error('Failed to save answer:', e);
@@ -421,8 +432,17 @@ FEATURES:
             };
 
             const completeAndSubmit = async () => {
+                if (!responseCode) {
+                    console.error('No response code available');
+                    onComplete();
+                    return;
+                }
+                
                 try {
-                    await api.post(`/api/responses/${responseId}/complete`, {});
+                    const surveyCode = getSurveyCode();
+                    await api.post(`/api/survey/${surveyCode}/complete`, {
+                        response_code: responseCode
+                    });
                     onComplete();
                 } catch (e) {
                     console.error('Failed to complete survey:', e);
